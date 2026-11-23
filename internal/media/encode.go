@@ -1,0 +1,256 @@
+package media
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os/exec"
+	"strconv"
+	"strings"
+)
+
+// Encoder identifies a video encoder.
+type Encoder int
+
+// Supported encoders.
+const (
+	EncH264NVENC Encoder = iota
+	EncHEVCNVENC
+	EncAV1NVENC
+	EncH264CPU
+)
+
+// Encoders in the order they appear in the interface.
+var Encoders = []struct {
+	ID   Encoder
+	Name string
+}{
+	{EncH264NVENC, "H.264 (NVENC, GPU)"},
+	{EncHEVCNVENC, "HEVC/H.265 (NVENC, GPU)"},
+	{EncAV1NVENC, "AV1 (NVENC, RTX 40+)"},
+	{EncH264CPU, "H.264 (x264, CPU)"},
+}
+
+// ffmpegName returns the ffmpeg encoder name.
+func (e Encoder) ffmpegName() string {
+	switch e {
+	case EncHEVCNVENC:
+		return "hevc_nvenc"
+	case EncAV1NVENC:
+		return "av1_nvenc"
+	case EncH264CPU:
+		return "libx264"
+	default:
+		return "h264_nvenc"
+	}
+}
+
+// Quality is the size/quality preset.
+type Quality int
+
+// Quality presets.
+const (
+	QualityLight  Quality = iota // smaller file
+	QualityMedium                // balanced
+	QualityHigh                  // better picture
+)
+
+// Qualities in the order they appear in the interface.
+var Qualities = []string{"Light (smaller file)", "Medium", "High"}
+
+// Resolutions offered in the interface, by height. 0 keeps the original.
+var Resolutions = []struct {
+	Height int
+	Name   string
+}{
+	{0, "Original"},
+	{1440, "1440p"},
+	{1080, "1080p"},
+	{720, "720p"},
+	{480, "480p"},
+}
+
+// Job describes one export.
+type Job struct {
+	Input   string
+	Output  string
+	Start   float64 // seconds; 0 = from the beginning
+	End     float64 // seconds; 0 = to the end
+	Height  int     // 0 = original resolution
+	Encoder Encoder
+	Quality Quality
+	// SrcHeight avoids upscaling videos smaller than the target height.
+	SrcHeight int
+}
+
+// Args builds the ffmpeg command line (without the executable).
+func (j Job) Args() []string {
+	args := []string{"-hide_banner", "-nostdin", "-y", "-loglevel", "error", "-nostats", "-progress", "pipe:1"}
+
+	// Hardware decoding when available; ffmpeg falls back to the CPU.
+	args = append(args, "-hwaccel", "auto")
+
+	// -ss before -i seeks fast; since the video is re-encoded the cut is exact.
+	if j.Start > 0 {
+		args = append(args, "-ss", formatSeconds(j.Start))
+	}
+	args = append(args, "-i", j.Input)
+	if j.End > 0 && j.End > j.Start {
+		args = append(args, "-t", formatSeconds(j.End-j.Start))
+	}
+
+	// Keep the main video and EVERY audio track (the NVIDIA app can record the
+	// microphone and the system sound on separate tracks).
+	args = append(args, "-map", "0:v:0", "-map", "0:a?")
+
+	if j.Height > 0 && (j.SrcHeight == 0 || j.Height < j.SrcHeight) {
+		args = append(args, "-vf", fmt.Sprintf("scale=-2:%d:flags=lanczos", j.Height))
+	}
+
+	q := int(j.Quality)
+	switch j.Encoder {
+	case EncH264NVENC:
+		args = append(args, "-c:v", "h264_nvenc", "-preset", "p5", "-tune", "hq",
+			"-rc", "vbr", "-cq", strconv.Itoa([]int{30, 26, 22}[q]), "-b:v", "0",
+			"-spatial-aq", "1", "-pix_fmt", "yuv420p")
+	case EncHEVCNVENC:
+		args = append(args, "-c:v", "hevc_nvenc", "-preset", "p5", "-tune", "hq",
+			"-rc", "vbr", "-cq", strconv.Itoa([]int{32, 28, 24}[q]), "-b:v", "0",
+			"-spatial-aq", "1", "-pix_fmt", "yuv420p", "-tag:v", "hvc1")
+	case EncAV1NVENC:
+		args = append(args, "-c:v", "av1_nvenc", "-preset", "p5", "-tune", "hq",
+			"-rc", "vbr", "-cq", strconv.Itoa([]int{38, 32, 27}[q]), "-b:v", "0",
+			"-pix_fmt", "yuv420p")
+	case EncH264CPU:
+		args = append(args, "-c:v", "libx264", "-preset", "medium",
+			"-crf", strconv.Itoa([]int{28, 23, 19}[q]), "-pix_fmt", "yuv420p")
+	}
+
+	args = append(args, "-c:a", "aac", "-b:a", []string{"128k", "160k", "192k"}[q])
+	args = append(args, "-movflags", "+faststart", j.Output)
+	return args
+}
+
+// Progress is reported while exporting.
+type Progress struct {
+	Fraction float64 // 0..1
+	Elapsed  float64 // seconds of output already processed
+	Speed    string  // for example "3.2x"
+}
+
+// Run executes ffmpeg and calls onProgress periodically, from the calling
+// goroutine. totalDur is the expected output duration, used for the fraction.
+func Run(ctx context.Context, job Job, totalDur float64, onProgress func(Progress)) error {
+	ffmpeg, err := FindTool("ffmpeg")
+	if err != nil {
+		return fmt.Errorf("ffmpeg not found: %w", err)
+	}
+	cmd := exec.CommandContext(ctx, ffmpeg, job.Args()...)
+	hideWindow(cmd)
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	readProgress(stdout, totalDur, onProgress)
+
+	err = cmd.Wait()
+	if ctx.Err() != nil {
+		return context.Canceled
+	}
+	if err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return errors.New(msg)
+	}
+	return nil
+}
+
+// readProgress parses the key=value blocks that "ffmpeg -progress" writes.
+func readProgress(r io.Reader, totalDur float64, onProgress func(Progress)) {
+	var p Progress
+	sc := bufio.NewScanner(r)
+	for sc.Scan() {
+		key, val, ok := strings.Cut(sc.Text(), "=")
+		if !ok {
+			continue
+		}
+		switch key {
+		case "out_time_us", "out_time_ms": // both are in microseconds
+			if us, err := strconv.ParseInt(val, 10, 64); err == nil && us >= 0 {
+				p.Elapsed = float64(us) / 1e6
+			}
+		case "speed":
+			p.Speed = strings.TrimSpace(val)
+		case "progress":
+			if totalDur > 0 {
+				p.Fraction = min(p.Elapsed/totalDur, 1)
+			}
+			if val == "end" {
+				p.Fraction = 1
+			}
+			if onProgress != nil {
+				onProgress(p)
+			}
+		}
+	}
+}
+
+// ProbeEncoder checks whether an encoder actually works on this machine
+// (NVENC, for example, needs an NVIDIA GPU with a recent driver).
+func ProbeEncoder(ctx context.Context, enc Encoder) bool {
+	ffmpeg, err := FindTool("ffmpeg")
+	if err != nil {
+		return false
+	}
+	cmd := exec.CommandContext(ctx, ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error",
+		"-f", "lavfi", "-i", "color=c=black:s=256x256:d=0.2",
+		"-c:v", enc.ffmpegName(), "-f", "null", "-")
+	hideWindow(cmd)
+	return cmd.Run() == nil
+}
+
+func formatSeconds(s float64) string {
+	return strconv.FormatFloat(s, 'f', 3, 64)
+}
+
+// FormatTime formats seconds as H:MM:SS.mmm, or MM:SS.mmm under one hour.
+func FormatTime(s float64) string {
+	if s < 0 {
+		s = 0
+	}
+	ms := int64(s*1000 + 0.5)
+	h := ms / 3_600_000
+	m := ms / 60_000 % 60
+	sec := ms / 1000 % 60
+	ms %= 1000
+	if h > 0 {
+		return fmt.Sprintf("%d:%02d:%02d.%03d", h, m, sec, ms)
+	}
+	return fmt.Sprintf("%02d:%02d.%03d", m, sec, ms)
+}
+
+// FormatSize formats a byte count as KB, MB, GB or TB.
+func FormatSize(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit && exp < 3; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGT"[exp])
+}
