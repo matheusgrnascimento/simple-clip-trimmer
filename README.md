@@ -1,19 +1,23 @@
 # Simple Clip Trimmer
 
-Simple desktop app for trimming, resizing and compressing videos, such as the large recordings made by the NVIDIA app. The project is written in Go, uses native Win32 controls (`walk`) for the interface, libmpv for a hardware-accelerated preview and the FFmpeg command line tools to encode.
+Simple desktop app for trimming, resizing and compressing videos, such as the large recordings made by the NVIDIA app. The project is written in Go, uses a native Win32 window (`walk`) with a custom-drawn, Windows 11 style control bar, libmpv for a hardware-accelerated preview and the FFmpeg command line tools to encode.
 
 ## Features
 
-- open a video from the **Open video** button, by dropping it on the window or by passing it as an argument;
-- file information on top: resolution, frame rate, codecs, number of audio tracks, duration, size and bit rate;
-- preview with GPU decoding (D3D11VA/NVDEC) for H.264, HEVC and AV1, without depending on Windows codec extensions;
-- frame-accurate navigation: position slider, frame by frame and 5 s steps;
-- **Set start** / **Set end** marks for the part to keep, with an optional loop of the selection in the preview;
-- output resolution (original, 1440p, 1080p, 720p or 480p, never upscaling), encoder and a Light/Medium/High quality preset;
-- encoders: H.264, HEVC and AV1 with NVENC (NVIDIA GPU) or H.264 with x264 (CPU). The app checks at startup which ones work on the machine, falls back to x264 without NVENC, and warns before using an unavailable one;
-- every audio track of the input is kept (the NVIDIA app can record the microphone on its own track);
-- export with progress, speed and time left, and **Cancel**, which removes the partial file;
-- at the end, the output size and how much smaller it is than the same part of the source.
+- Windows 11 look: light/dark theme and accent color following the system (and updating when they change), title bar matching the app, Segoe UI Variable and Segoe Fluent Icons, anti-aliased controls and native Windows 11 menus;
+- few controls: the video, one timeline row and one footer. There is no menu bar;
+- open a video by clicking the empty video area, with the open button in the footer, by dropping it on the window or by passing it as an argument;
+- file information in the footer: resolution, frame rate, codec, number of audio tracks, size and bit rate;
+- preview with GPU decoding (D3D11VA/NVDEC) for H.264, HEVC and AV1, without depending on Windows codec extensions. Click the video to play or pause;
+- a **timeline** with the playhead and two blue **handles** that set the part to keep. Drag a handle to move it (the preview shows that frame), click or drag elsewhere on the track to seek, or right-click it for **Set start here**, **Set end here** and **Keep the whole video**. Below it, the selection's start, end and length;
+- playing from inside the selection stops at its end, so the preview shows exactly what will be exported; Play at the end of the selection plays it again from its start;
+- frame-accurate navigation: frame by frame and 5 s steps from the keyboard;
+- **Crop** (footer button or `C`) to reframe the picture: the video area shows the current frame with a crop box over it. Drag the box to move it and its corners (or edges) to resize it, pick an aspect ratio (Free, Original, 16:9, 9:16, 1:1, 4:5 or 4:3), and move along the timeline to check the framing on other frames. **Done** (or `Enter`) applies it and **Esc** cancels; after that the preview shows only the cropped picture and the button shows its size. The crop is rounded to even sizes, which the encoders need;
+- two output drop-downs: the resolution (original, 1440p, 1080p, 720p or 480p, never upscaling the picture or the crop) and the quality (Light, Medium or High) with the format (H.264, most compatible; HEVC, smaller files; AV1, smallest files) and **Remove audio**;
+- each format uses the NVIDIA GPU encoder (NVENC) when it works on the machine and falls back to the CPU encoder (x264, x265 or SVT-AV1) otherwise; the app checks this at startup and marks CPU-only formats in the menu;
+- every audio track of the input is kept (the NVIDIA app can record the microphone on its own track), unless **Remove audio** is on;
+- **Export** turns into **Cancel** while exporting, with progress, speed and time left in the footer. Canceling removes the partial file;
+- at the end, the footer shows the output size, how much smaller it is than the same part of the source, and a **Show in folder** link.
 
 ## Requirements
 
@@ -58,23 +62,39 @@ With the requirements above in place:
 
 ### Shortcuts
 
+The shortcuts work both when the window and when the video has the keyboard focus (they are also bound inside mpv, whose video window runs on its own thread).
+
 | Key | Action |
 |---|---|
-| `Space` | play / pause |
+| `Space` or click on the video | play / pause |
 | `,` / `.` | previous / next frame |
 | `←` / `→` | back / forward 5 s |
-| `I` / `O` | set start / end |
+| `I` / `O` | set start / end at the playhead |
+| `C` | crop the picture (in crop mode: apply) |
+| `Enter` / `Esc` | in crop mode: apply / cancel |
 | `Ctrl+O` | open video |
 | `Ctrl+E` | export |
+
+### Theme
+
+The app follows the Windows light/dark app theme and accent color. To check one theme without changing the Windows setting:
+
+| Variable | Effect |
+|---|---|
+| `SIMPLE_CLIP_TRIMMER_THEME` | `light` or `dark` forces that theme |
+
+```powershell
+$env:SIMPLE_CLIP_TRIMMER_THEME = "light"; .\build\simple-clip-trimmer.exe
+```
 
 ## Export
 
 The export runs `ffmpeg` with:
 
 - `-ss <start>` before the input and `-t <length>`: a fast seek, and since the video is re-encoded the cut is exact to the frame;
-- `-map 0:v:0 -map 0:a?`: the main video and every audio track;
-- `scale=-2:<height>:flags=lanczos` when a smaller resolution is chosen;
-- NVENC with `-preset p5 -tune hq -rc vbr -cq <n> -b:v 0`, or x264 with `-preset medium -crf <n>`, where the quality preset picks `n`;
+- `-map 0:v:0 -map 0:a?`: the main video and every audio track (with **Remove audio**, only the video and `-an`);
+- `crop=<w>:<h>:<x>:<y>` when the picture is cropped, then `scale=-2:<height>:flags=lanczos` when a smaller resolution is chosen;
+- NVENC with `-preset p5 -tune hq -rc vbr -cq <n> -b:v 0`, or on the CPU x264/x265 with `-preset medium -crf <n>` or SVT-AV1 with `-preset 8 -crf <n>`, where the quality preset picks `n`;
 - AAC audio at 128, 160 or 192 kb/s, `yuv420p` video and `+faststart` MP4 output, which plays everywhere.
 
 ## Tests
@@ -83,7 +103,17 @@ The export runs `ffmpeg` with:
 go test ./...
 ```
 
-The `internal/media` tests check the ffmpeg arguments, the ffprobe and progress parsers, and run real exports: they generate a 2560x1440 60 fps sample with two audio tracks and export a trimmed 720p part with every encoder available on the machine, checking resolution, duration and audio tracks, plus a canceled export. `go test -short ./...` skips the tests that run ffmpeg.
+The `internal/media` tests check the ffmpeg arguments, the ffprobe and progress parsers, and run real exports: they generate a 2560x1440 60 fps sample with two audio tracks and export a trimmed 720p part with every encoder available on the machine (GPU and CPU), checking resolution, duration and audio tracks, a cropped 9:16 export without audio, and a canceled export. `go test -short ./...` skips the tests that run ffmpeg.
+
+Two benchmarks in `internal/fluent` measure the cost of a repaint at 100% and 150% display scaling: copying a painted frame to a window (into an off-screen bitmap), and drawing one crop-mode frame:
+
+```powershell
+go test -run '^$' -bench . -benchmem ./internal/fluent/
+```
+
+The `internal/crop` tests check the crop box geometry: hit testing, moving and resizing it (free and with a fixed aspect ratio) without leaving the frame, fitting an aspect ratio and rounding to even sizes.
+
+The `internal/fluent` tests check the theme palette (accent color from the Windows accent palette), the anti-aliased shapes and the Windows fonts (loading, measuring and ellipsizing text).
 
 ## License
 
