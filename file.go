@@ -62,6 +62,11 @@ func (a *app) opened(info media.Info) {
 	a.markIn, a.markOut = 0, 0
 	a.result = nil
 	a.note = ""
+	if a.cr.active {
+		a.exitCrop(false)
+	}
+	a.cropRect = nil
+	a.setVideoCrop(nil) // mpv keeps the crop across files
 	if a.height >= info.Height {
 		a.height = 0 // never upscale: keep the original
 	}

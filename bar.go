@@ -30,13 +30,18 @@ const (
 	hitQuality
 	hitExport
 	hitResult
+	hitCrop   // enters (or, in crop mode, applies) the crop
+	hitAspect // crop mode: aspect ratio drop-down
+	hitReset  // crop mode: reset the box to the whole picture
+	hitDone   // crop mode: apply the crop
 )
 
 // barLayout holds where each part was drawn in the last paint, in pixels,
 // for hit testing.
 type barLayout struct {
-	play, track, open, height, quality, export, result fluent.Rect
-	startX, endX                                       float64
+	play, track, open, crop, height, quality, export, result fluent.Rect
+	aspect, reset, done                                      fluent.Rect
+	startX, endX                                             float64
 }
 
 // bar is the custom-drawn control bar: the timeline row (play, times,
@@ -74,7 +79,7 @@ func (b *bar) paintTimeline(p *fluent.Painter, w float64) {
 	// Play / pause.
 	b.l.play = fluent.Rect{X: p.S(16), Y: cy - p.S(18), W: p.S(36), H: p.S(36)}
 	fill, fg := pal.Control, pal.TextDisabled
-	if loaded {
+	if loaded && !a.cr.active {
 		fill, fg = b.accentFill(hitPlay), pal.OnAccent
 	}
 	p.Circle(b.l.play.X+b.l.play.W/2, cy, p.S(18), fill)
@@ -157,6 +162,31 @@ func (b *bar) paintFooter(p *fluent.Painter, w, h float64) {
 	}
 	p.TextCentered(a.fonts.Icons(p.S(16)), fluent.IconOpenFile, b.l.open.X+b.l.open.W/2, cy, pal.Text)
 
+	// Crop (icon and label), showing the crop size once one is set.
+	cropLabel := "Crop"
+	if a.cropRect != nil && !a.cr.active {
+		cropLabel = fmt.Sprintf("Crop  ·  %d×%d", a.cropRect.Dx(), a.cropRect.Dy())
+	}
+	cropIcon := a.fonts.Icons(p.S(16))
+	iconW := fluent.Measure(cropIcon, fluent.IconCrop)
+	b.l.crop = fluent.Rect{X: b.l.open.Right() + p.S(4), Y: cy - btnH/2, W: p.S(10) + iconW + p.S(8) + fluent.Measure(text, cropLabel) + p.S(12), H: btnH}
+	cropFG := pal.Text
+	switch {
+	case !loaded || busy:
+		cropFG = pal.TextDisabled
+	case a.cr.active:
+		p.RoundRect(b.l.crop, p.S(4), pal.AccentBand)
+	case b.hover == hitCrop:
+		p.RoundRect(b.l.crop, p.S(4), pal.SubtleHover)
+	}
+	p.Text(cropIcon, fluent.IconCrop, b.l.crop.X+p.S(10), cy, cropFG)
+	p.Text(text, cropLabel, b.l.crop.X+p.S(10)+iconW+p.S(8), cy, cropFG)
+
+	if a.cr.active {
+		b.paintCropFooter(p, w, cy)
+		return
+	}
+
 	// Export / Cancel, from the right edge.
 	label := "Export"
 	if busy {
@@ -181,7 +211,7 @@ func (b *bar) paintFooter(p *fluent.Painter, w, h float64) {
 	b.l.height = b.paintDropDown(p, a.heightLabel(), b.l.quality.X-p.S(8), cy, hitHeight, !busy)
 
 	// Middle: export progress, a message, the last result or the file info.
-	x := b.l.open.Right() + p.S(8)
+	x := b.l.crop.Right() + p.S(12)
 	maxW := b.l.height.X - p.S(16) - x
 	switch {
 	case busy && a.progress != nil:
@@ -211,6 +241,32 @@ func (b *bar) paintFooter(p *fluent.Painter, w, h float64) {
 		p.Text(caption, fluent.Ellipsize(caption, describe(*a.info), maxW), x, cy, pal.TextSecondary)
 	default:
 		p.Text(caption, "Open a video to start", x, cy, pal.TextSecondary)
+	}
+}
+
+// paintCropFooter draws the footer of crop mode: the box size and hints,
+// the aspect ratio drop-down, Reset and Done.
+func (b *bar) paintCropFooter(p *fluent.Painter, w, cy float64) {
+	a, pal := b.a, b.a.pal
+	text := a.fonts.Text(p.S(14))
+	caption := a.fonts.Text(p.S(12))
+	btnH := p.S(32)
+
+	dw := math.Max(p.S(96), fluent.Measure(text, "Done")+p.S(32))
+	b.l.done = fluent.Rect{X: w - p.S(16) - dw, Y: cy - btnH/2, W: dw, H: btnH}
+	p.RoundRect(b.l.done, p.S(4), b.accentFill(hitDone))
+	p.TextCentered(text, "Done", b.l.done.X+dw/2, cy, pal.OnAccent)
+
+	rw := fluent.Measure(text, "Reset") + p.S(32)
+	b.l.reset = fluent.Rect{X: b.l.done.X - p.S(8) - rw, Y: cy - btnH/2, W: rw, H: btnH}
+	b.paintControl(p, b.l.reset, hitReset)
+	p.TextCentered(text, "Reset", b.l.reset.X+rw/2, cy, pal.Text)
+
+	b.l.aspect = b.paintDropDown(p, "Aspect  ·  "+cropAspects[a.cr.aspect].Name, b.l.reset.X-p.S(8), cy, hitAspect, true)
+
+	x := b.l.crop.Right() + p.S(12)
+	if maxW := b.l.aspect.X - p.S(16) - x; maxW > 0 {
+		p.Text(caption, fluent.Ellipsize(caption, a.cropSummary(), maxW), x, cy, pal.TextSecondary)
 	}
 }
 
@@ -285,6 +341,21 @@ func (b *bar) hitTest(x, y float64) hitArea {
 			return hitEnd
 		}
 	}
+	if a.cr.active {
+		switch {
+		case l.track.Contains(x, y):
+			return hitTrack // seeking shows another frame to frame
+		case l.crop.Contains(x, y):
+			return hitCrop
+		case l.aspect.Contains(x, y):
+			return hitAspect
+		case l.reset.Contains(x, y):
+			return hitReset
+		case l.done.Contains(x, y):
+			return hitDone
+		}
+		return hitNone
+	}
 	switch {
 	case loaded && l.play.Contains(x, y):
 		return hitPlay
@@ -292,6 +363,8 @@ func (b *bar) hitTest(x, y float64) hitArea {
 		return hitTrack
 	case l.open.Contains(x, y):
 		return hitOpen
+	case loaded && !a.exporting() && l.crop.Contains(x, y):
+		return hitCrop
 	case !a.exporting() && l.height.Contains(x, y):
 		return hitHeight
 	case !a.exporting() && l.quality.Contains(x, y):
@@ -411,6 +484,14 @@ func (b *bar) click(h hitArea) {
 		}
 	case hitResult:
 		a.showInFolder()
+	case hitCrop:
+		a.do(actCrop)
+	case hitAspect:
+		a.aspectMenu(b.l.aspect)
+	case hitReset:
+		a.resetCrop()
+	case hitDone:
+		a.do(actCropApply)
 	}
 }
 

@@ -7,15 +7,18 @@ import (
 // Actions shared by the keyboard shortcuts, the mpv key bindings and the
 // control bar.
 const (
-	actPlayPause = "play-pause"
-	actPrevFrame = "prev-frame"
-	actNextFrame = "next-frame"
-	actBack      = "back"
-	actForward   = "forward"
-	actSetStart  = "set-start"
-	actSetEnd    = "set-end"
-	actOpen      = "open"
-	actExport    = "export"
+	actPlayPause  = "play-pause"
+	actPrevFrame  = "prev-frame"
+	actNextFrame  = "next-frame"
+	actBack       = "back"
+	actForward    = "forward"
+	actSetStart   = "set-start"
+	actSetEnd     = "set-end"
+	actOpen       = "open"
+	actExport     = "export"
+	actCrop       = "crop"        // enter crop mode, or apply the crop
+	actCropApply  = "crop-apply"  // Enter in crop mode
+	actCropCancel = "crop-cancel" // Esc in crop mode
 )
 
 // shortcuts maps keys to actions. mpvKey is the same key in mpv's input
@@ -33,6 +36,9 @@ var shortcuts = []struct {
 	{0, walk.KeyRight, "RIGHT", actForward},
 	{0, walk.KeyI, "i", actSetStart},
 	{0, walk.KeyO, "o", actSetEnd},
+	{0, walk.KeyC, "c", actCrop},
+	{0, walk.KeyReturn, "ENTER", actCropApply},
+	{0, walk.KeyEscape, "ESC", actCropCancel},
 	{walk.ModControl, walk.KeyO, "Ctrl+o", actOpen},
 	{walk.ModControl, walk.KeyE, "Ctrl+e", actExport},
 }
@@ -58,5 +64,15 @@ func (a *app) do(action string) {
 		a.openDialog()
 	case actExport:
 		a.export()
+	case actCrop:
+		if a.cr.active {
+			a.exitCrop(true)
+		} else {
+			a.enterCrop()
+		}
+	case actCropApply:
+		a.exitCrop(true)
+	case actCropCancel:
+		a.exitCrop(false)
 	}
 }

@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"image"
 	"log/slog"
 	"os"
 	"sync/atomic"
@@ -45,6 +46,8 @@ type app struct {
 	quality  media.Quality
 	codec    media.Codec
 	noAudio  bool                          // drop every audio track
+	cropRect *image.Rectangle              // part of the picture to keep, in source pixels; nil = all
+	cr       cropState                     // crop mode
 	encoders map[media.Codec]media.Encoder // fastest working encoder per codec; nil until checked
 
 	cancelExport context.CancelFunc

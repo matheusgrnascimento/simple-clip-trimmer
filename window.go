@@ -40,6 +40,7 @@ func (a *app) buildWindow() error {
 				PaintPixels:         a.paintStage,
 				PaintMode:           PaintNoErase,
 				InvalidatesOnResize: true,
+				OnMouseDown:         a.onStageMouseDown,
 				OnMouseMove:         a.onStageMouseMove,
 				OnMouseUp:           a.onStageMouseUp,
 			},

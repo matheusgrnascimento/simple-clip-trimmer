@@ -87,6 +87,9 @@ func (a *app) export() {
 	if a.info == nil || a.exporting() {
 		return
 	}
+	if a.cr.active {
+		a.exitCrop(true)
+	}
 	if a.encoders == nil {
 		a.flash("Still checking the encoders. Try again in a moment.")
 		return
@@ -110,6 +113,7 @@ func (a *app) export() {
 		Encoder:   enc,
 		Quality:   a.quality,
 		SrcHeight: a.info.Height,
+		Crop:      a.cropRect,
 		NoAudio:   a.noAudio,
 	}
 	total := a.cutEnd() - a.markIn
@@ -223,6 +227,7 @@ const (
 	menuSetEnd      = 402
 	menuReset       = 403
 	menuNoAudio     = 501
+	menuAspectBase  = 600
 )
 
 func (a *app) qualityMenu(anchor fluent.Rect) {
@@ -266,13 +271,14 @@ func (a *app) qualityMenu(anchor fluent.Rect) {
 
 func (a *app) heightMenu(anchor fluent.Rect) {
 	var items []fluent.MenuItem
+	ow, oh := a.outputSize() // the crop, or the whole source
 	for _, h := range media.Resolutions {
 		text := heightName(h)
 		disabled := false
-		if h == 0 && a.info != nil {
-			text = fmt.Sprintf("Original (%d×%d)", a.info.Width, a.info.Height)
+		if h == 0 && oh > 0 {
+			text = fmt.Sprintf("Original (%d×%d)", ow, oh)
 		}
-		if h > 0 && a.info != nil && h >= a.info.Height {
+		if h > 0 && oh > 0 && h >= oh {
 			disabled = true // would not be smaller than the source
 		}
 		items = append(items, fluent.MenuItem{ID: menuHeightBase + h, Text: text, Checked: a.height == h, Disabled: disabled})

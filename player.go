@@ -122,6 +122,13 @@ func (a *app) eventLoop() {
 		switch ev.ID {
 		case mpv.EventShutdown:
 			return
+		case mpv.EventPlaybackRestart:
+			// A seek finished: crop mode shows the new frame.
+			a.mw.Synchronize(func() {
+				if a.cr.active {
+					a.grabFrame()
+				}
+			})
 		case mpv.EventClientMessage:
 			if len(ev.Args) == 2 && ev.Args[0] == messagePrefix {
 				action := ev.Args[1]
@@ -164,7 +171,7 @@ func (a *app) cmd(args ...string) {
 }
 
 func (a *app) togglePlay() {
-	if a.info == nil {
+	if a.info == nil || a.cr.active {
 		return
 	}
 	// Stopped at the end of the selection: play it again from its start.
