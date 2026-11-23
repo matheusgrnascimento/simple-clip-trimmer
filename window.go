@@ -17,8 +17,8 @@ import (
 // footer with the file information, output options and Export.
 const barHeightDIP = 124
 
-// buildWindow creates the main window: the video area on top and the
-// custom-drawn control bar below it. There is no menu bar; actions live in
+// buildWindow creates the main window: the drawn title bar, the video area
+// and the custom-drawn control bar. There is no menu bar; actions live in
 // the bar and in keyboard shortcuts.
 func (a *app) buildWindow() error {
 	err := MainWindow{
@@ -35,8 +35,20 @@ func (a *app) buildWindow() error {
 		},
 		Children: []Widget{
 			CustomWidget{
+				AssignTo:            &a.titleW,
+				MinSize:             Size{Height: titleHeightDIP},
+				MaxSize:             Size{Height: titleHeightDIP},
+				PaintPixels:         a.title.paint,
+				PaintMode:           PaintNoErase,
+				InvalidatesOnResize: true,
+			},
+			// No minimum height: walk's box layout sizes items with the
+			// largest minimum first, and the video area must come last so it
+			// takes all the height the fixed title and control bars leave.
+			CustomWidget{
 				AssignTo:            &a.stage,
-				StretchFactor:       1,
+				StretchFactor:       100,
+				MinSize:             Size{Width: 320},
 				PaintPixels:         a.paintStage,
 				PaintMode:           PaintNoErase,
 				InvalidatesOnResize: true,
@@ -74,13 +86,20 @@ func (a *app) buildWindow() error {
 	if err := fluent.Subclass(uintptr(a.barW.Handle()), a.bar.message); err != nil {
 		slog.Warn("subclass control bar", "err", err)
 	}
+	if err := a.installTitleBar(); err != nil {
+		slog.Warn("title bar", "err", err)
+	}
 	a.setWindowIcon()
 	a.addShortcuts()
 	return nil
 }
 
-// windowMessage follows theme and accent color changes of Windows.
-func (a *app) windowMessage(msg uint32, _, lParam uintptr) (bool, uintptr) {
+// windowMessage handles the drawn title bar's frame messages and follows
+// theme and accent color changes of Windows.
+func (a *app) windowMessage(msg uint32, wParam, lParam uintptr) (bool, uintptr) {
+	if handled, r := a.frameMessage(msg, wParam, lParam); handled {
+		return true, r
+	}
 	if msg == fluent.WMSettingChange && fluent.LParamString(lParam) == "ImmersiveColorSet" {
 		a.applyTheme()
 	}
@@ -110,6 +129,7 @@ func (a *app) applyTheme() {
 	if brush, err := walk.NewSolidColorBrush(walkColor(a.pal.Window)); err == nil {
 		a.mw.SetBackground(brush)
 	}
+	a.titleW.Invalidate()
 	a.stage.Invalidate()
 	a.refresh()
 }

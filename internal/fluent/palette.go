@@ -35,6 +35,10 @@ type Palette struct {
 	Flyout        color.NRGBA // menu (flyout) background
 	FlyoutDivider color.NRGBA // separator line inside a menu
 
+	CloseHover   color.NRGBA // caption Close button, the same in both themes
+	ClosePressed color.NRGBA
+	OnClose      color.NRGBA
+
 	Accent        color.NRGBA
 	AccentHover   color.NRGBA
 	AccentPressed color.NRGBA
@@ -54,6 +58,10 @@ var (
 	scrim      = color.NRGBA{0x00, 0x00, 0x00, 0x99}
 	cropLine   = color.NRGBA{0xFF, 0xFF, 0xFF, 0xFF}
 	cropGuide  = color.NRGBA{0xFF, 0xFF, 0xFF, 0x59}
+
+	closeHover   = color.NRGBA{0xC4, 0x2B, 0x1C, 0xFF}
+	closePressed = color.NRGBA{0xC8, 0x3C, 0x31, 0xFF}
+	onClose      = color.NRGBA{0xFF, 0xFF, 0xFF, 0xFF}
 )
 
 const (
@@ -134,6 +142,9 @@ func NewPalette(dark bool, accentPalette []byte) Palette {
 			Rail:           rgb(0x9A, 0x9A, 0x9A),
 			Flyout:         rgb(0x2C, 0x2C, 0x2C),
 			FlyoutDivider:  rgb(0x3D, 0x3D, 0x3D),
+			CloseHover:     closeHover,
+			ClosePressed:   closePressed,
+			OnClose:        onClose,
 			Accent:         accent,
 			AccentHover:    mix(accent, rgb(0x20, 0x20, 0x20), 0.10),
 			AccentPressed:  mix(accent, rgb(0x20, 0x20, 0x20), 0.20),
@@ -163,6 +174,9 @@ func NewPalette(dark bool, accentPalette []byte) Palette {
 		Rail:           rgb(0x8A, 0x8A, 0x8A),
 		Flyout:         rgb(0xF9, 0xF9, 0xF9),
 		FlyoutDivider:  rgb(0xE5, 0xE5, 0xE5),
+		CloseHover:     closeHover,
+		ClosePressed:   closePressed,
+		OnClose:        onClose,
 		Accent:         accent,
 		AccentHover:    mix(accent, rgb(0xF3, 0xF3, 0xF3), 0.10),
 		AccentPressed:  mix(accent, rgb(0xF3, 0xF3, 0xF3), 0.20),

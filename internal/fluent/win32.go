@@ -62,8 +62,10 @@ func AllowDarkMenus() {
 // Window messages walk does not name.
 const (
 	WMMouseLeave    = 0x02A3
+	WMNCMouseLeave  = 0x02A2
 	WMSettingChange = 0x001A
 	tmeLeave        = 0x0002
+	tmeNonClient    = 0x0010
 )
 
 type trackMouseEvent struct {
@@ -76,6 +78,10 @@ type trackMouseEvent struct {
 // TrackMouseLeave asks Windows to send WM_MOUSELEAVE to hwnd when the
 // cursor leaves its client area.
 func TrackMouseLeave(hwnd uintptr) { trackMouse(hwnd, tmeLeave) }
+
+// TrackNCMouseLeave asks Windows to send WM_NCMOUSELEAVE to hwnd when the
+// cursor leaves its non-client area (for example the caption buttons).
+func TrackNCMouseLeave(hwnd uintptr) { trackMouse(hwnd, tmeLeave|tmeNonClient) }
 
 func trackMouse(hwnd uintptr, flags uint32) {
 	t := trackMouseEvent{Flags: flags, Hwnd: hwnd}
@@ -114,6 +120,13 @@ func Subclass(hwnd uintptr, fn SubclassFunc) error {
 		return fmt.Errorf("SetWindowSubclass: %w", err)
 	}
 	return nil
+}
+
+// DefSubclass runs the window's own handling of a message. Call it only
+// from inside a SubclassFunc, to adjust what the window would do.
+func DefSubclass(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
+	r, _, _ := procDefSubclassProc.Call(hwnd, uintptr(msg), wParam, lParam)
+	return r
 }
 
 // LParamString reads the string a message passes as a pointer in lParam

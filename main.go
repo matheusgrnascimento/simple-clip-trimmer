@@ -22,10 +22,12 @@ const appName = "Simple Clip Trimmer"
 // app holds the window and the editing state. Every field is only touched
 // on the UI thread, except player (thread safe) and closing.
 type app struct {
-	mw    *walk.MainWindow
-	stage *walk.CustomWidget // video area; mpv draws in a child window of it
-	barW  *walk.CustomWidget // custom-drawn control bar
-	bar   *bar
+	mw     *walk.MainWindow
+	titleW *walk.CustomWidget // drawn title bar
+	title  *titleBar
+	stage  *walk.CustomWidget // video area; mpv draws in a child window of it
+	barW   *walk.CustomWidget // custom-drawn control bar
+	bar    *bar
 
 	pal          fluent.Palette
 	fonts        *fluent.Fonts
@@ -73,6 +75,7 @@ func main() {
 	}
 	a := &app{paused: true, fonts: fonts, pal: loadPalette(), height: 1080, quality: media.QualityMedium}
 	a.bar = &bar{a: a}
+	a.title = &titleBar{a: a}
 	if err := a.buildWindow(); err != nil {
 		walk.MsgBox(nil, appName, "Could not create the window:\n"+err.Error(), walk.MsgBoxIconError)
 		return

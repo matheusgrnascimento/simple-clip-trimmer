@@ -21,6 +21,12 @@ const (
 	IconVideo       = ""
 	IconCrop        = ""
 	IconCheckMark   = ""
+
+	// Caption buttons.
+	IconChromeMinimize = ""
+	IconChromeMaximize = ""
+	IconChromeRestore  = ""
+	IconChromeClose    = ""
 )
 
 // Fonts loads the Windows UI and icon fonts and caches faces by pixel size.
