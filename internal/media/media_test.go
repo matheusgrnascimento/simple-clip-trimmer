@@ -33,6 +33,21 @@ func TestJobArgs(t *testing.T) {
 	}
 }
 
+func TestCandidates(t *testing.T) {
+	for _, c := range Codecs {
+		enc := Candidates(c.ID)
+		if len(enc) != 2 || !enc[0].Hardware() || enc[1].Hardware() {
+			t.Errorf("%s: candidates %v, want GPU first then CPU", c.Name, enc)
+		}
+	}
+	for _, e := range AllEncoders {
+		args := strings.Join(e.videoArgs(QualityMedium), " ")
+		if !strings.HasPrefix(args, "-c:v "+e.String()) {
+			t.Errorf("%s: args %q must start with the encoder", e, args)
+		}
+	}
+}
+
 func TestJobArgsNoUpscaleNoCut(t *testing.T) {
 	j := Job{Input: "in.mp4", Output: "out.mp4", Height: 1080, SrcHeight: 720, Encoder: EncH264CPU}
 	args := j.Args()
@@ -135,14 +150,14 @@ func TestProbeAndExport(t *testing.T) {
 		t.Fatalf("unexpected probe result: %+v", info)
 	}
 
-	for _, enc := range Encoders {
-		t.Run(enc.Name, func(t *testing.T) {
-			if !ProbeEncoder(context.Background(), enc.ID) {
+	for _, enc := range AllEncoders {
+		t.Run(enc.String(), func(t *testing.T) {
+			if !ProbeEncoder(context.Background(), enc) {
 				t.Skip("encoder not available on this machine")
 			}
 			out := filepath.Join(dir, "out.mp4")
 			job := Job{Input: in, Output: out, Start: 2.5, End: 6, Height: 720,
-				Encoder: enc.ID, Quality: QualityMedium, SrcHeight: info.Height}
+				Encoder: enc, Quality: QualityMedium, SrcHeight: info.Height}
 
 			var last Progress
 			start := time.Now()
@@ -170,7 +185,7 @@ func TestProbeAndExport(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			t.Logf("%s: %s in %v", enc.Name, FormatSize(st.Size()), time.Since(start).Round(time.Millisecond))
+			t.Logf("%s: %s in %v", enc, FormatSize(st.Size()), time.Since(start).Round(time.Millisecond))
 		})
 	}
 }

@@ -6,42 +6,72 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/tailscale/walk"
 	"github.com/tailscale/win"
 
+	"github.com/matheusgrnascimento/simple-clip-trimmer/internal/fluent"
 	"github.com/matheusgrnascimento/simple-clip-trimmer/internal/media"
 )
 
-const progressScale = 1000
+// exportProgress is the state of the running export.
+type exportProgress struct {
+	fraction float64
+	speed    string
+	started  time.Time
+}
 
-// checkTools checks for ffmpeg/ffprobe and, off the UI thread, which
-// encoders work on this machine.
+func (p *exportProgress) text() string {
+	s := fmt.Sprintf("Exporting  %.0f%%", p.fraction*100)
+	if p.speed != "" {
+		s += "  ·  " + p.speed
+	}
+	if p.fraction > 0.02 && p.fraction < 1 {
+		elapsed := time.Since(p.started)
+		left := time.Duration(float64(elapsed) * (1 - p.fraction) / p.fraction)
+		s += "  ·  about " + left.Round(time.Second).String() + " left"
+	}
+	return s
+}
+
+// exportResult is the outcome of the last finished export.
+type exportResult struct {
+	path    string
+	summary string
+}
+
+// checkTools checks for ffmpeg/ffprobe and, off the UI thread, picks the
+// fastest working encoder for each codec.
 func (a *app) checkTools() {
 	_, errFF := media.FindTool("ffmpeg")
 	_, errFP := media.FindTool("ffprobe")
 	if errFF != nil || errFP != nil {
-		walk.MsgBox(a.mw, appName, "ffmpeg.exe and/or ffprobe.exe were not found.\nPut them next to the app or in PATH.", walk.MsgBoxIconWarning)
+		walk.MsgBox(a.mw, appName, "ffmpeg.exe and ffprobe.exe weren't found.\nPut them next to the app or in PATH.", walk.MsgBoxIconWarning)
 		return
 	}
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		missing := map[media.Encoder]bool{}
-		for _, e := range media.Encoders {
-			if !media.ProbeEncoder(ctx, e.ID) {
-				missing[e.ID] = true
+		found := map[media.Codec]media.Encoder{}
+		for _, c := range media.Codecs {
+			for _, e := range media.Candidates(c.ID) {
+				if media.ProbeEncoder(ctx, e) {
+					found[c.ID] = e
+					break
+				}
 			}
 		}
 		a.mw.Synchronize(func() {
-			a.encMissing = missing
-			if missing[media.EncH264NVENC] && a.encCB.CurrentIndex() == 0 {
-				a.encCB.SetCurrentIndex(len(media.Encoders) - 1) // x264 (CPU)
-				a.setStatus("NVENC is not available on this machine; using x264 (CPU).")
+			a.encoders = found
+			if e, ok := found[media.CodecH264]; ok && !e.Hardware() {
+				a.flash("No NVIDIA encoder found, so exports use the CPU (slower).")
 			}
+			a.refresh()
 		})
 	}()
 }
@@ -57,8 +87,13 @@ func (a *app) export() {
 	if a.info == nil || a.exporting() {
 		return
 	}
-	if enc := media.Encoders[a.encCB.CurrentIndex()]; a.encMissing[enc.ID] {
-		walk.MsgBox(a.mw, appName, enc.Name+" is not available on this machine (GPU or driver).\nPick another encoder.", walk.MsgBoxIconWarning)
+	if a.encoders == nil {
+		a.flash("Still checking the encoders. Try again in a moment.")
+		return
+	}
+	enc, ok := a.encoders[a.codec]
+	if !ok {
+		walk.MsgBox(a.mw, appName, codecLabel(a.codec)+" isn't available in this ffmpeg build or on this GPU.\nPick another format.", walk.MsgBoxIconWarning)
 		return
 	}
 	out, ok := a.askOutput()
@@ -71,9 +106,9 @@ func (a *app) export() {
 		Output:    out,
 		Start:     a.markIn,
 		End:       a.markOut,
-		Height:    media.Resolutions[a.resCB.CurrentIndex()].Height,
-		Encoder:   media.Encoders[a.encCB.CurrentIndex()].ID,
-		Quality:   media.Quality(a.qualCB.CurrentIndex()),
+		Height:    a.height,
+		Encoder:   enc,
+		Quality:   a.quality,
 		SrcHeight: a.info.Height,
 	}
 	total := a.cutEnd() - a.markIn
@@ -90,19 +125,25 @@ func (a *app) export() {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	a.cancelExport = cancel
-	a.progress.SetValue(0)
-	a.updateControls()
-	a.setStatus("Exporting to %s...", filepath.Base(out))
-	started := time.Now()
+	a.progress = &exportProgress{started: time.Now()}
+	a.result = nil
+	a.note = ""
+	a.refresh()
 
 	go func() {
 		err := media.Run(ctx, job, total, func(p media.Progress) {
-			a.mw.Synchronize(func() { a.onProgress(p, started) })
+			a.mw.Synchronize(func() {
+				if a.progress != nil {
+					a.progress.fraction, a.progress.speed = p.Fraction, p.Speed
+					a.refresh()
+				}
+			})
 		})
 		a.mw.Synchronize(func() {
+			started := a.progress.started
 			cancel()
 			a.cancelExport = nil
-			a.updateControls()
+			a.progress = nil
 			a.onExportDone(err, out, srcSize, started)
 		})
 	}()
@@ -127,21 +168,10 @@ func (a *app) askOutput() (string, bool) {
 		out += ".mp4"
 	}
 	if strings.EqualFold(absPath(in), absPath(out)) {
-		walk.MsgBox(a.mw, appName, "The output file cannot be the input file.", walk.MsgBoxIconWarning)
+		walk.MsgBox(a.mw, appName, "The output file can't be the video you're editing.", walk.MsgBoxIconWarning)
 		return "", false
 	}
 	return out, true
-}
-
-func (a *app) onProgress(p media.Progress, started time.Time) {
-	a.progress.SetValue(int(p.Fraction * progressScale))
-	eta := ""
-	if p.Fraction > 0.02 && p.Fraction < 1 {
-		elapsed := time.Since(started)
-		left := time.Duration(float64(elapsed) * (1 - p.Fraction) / p.Fraction)
-		eta = " · about " + left.Round(time.Second).String() + " left"
-	}
-	a.setStatus("Exporting... %.1f%% · speed %s%s", p.Fraction*100, p.Speed, eta)
 }
 
 func (a *app) onExportDone(err error, out string, srcSize int64, started time.Time) {
@@ -150,23 +180,143 @@ func (a *app) onExportDone(err error, out string, srcSize int64, started time.Ti
 		if rmErr := os.Remove(out); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
 			slog.Warn("remove partial output", "err", rmErr)
 		}
-		a.progress.SetValue(0)
-		a.setStatus("Export canceled.")
+		a.flash("Export canceled.")
 	case err != nil:
-		a.setStatus("Export failed.")
+		a.flash("Export failed.")
 		walk.MsgBox(a.mw, appName, "ffmpeg failed:\n"+err.Error(), walk.MsgBoxIconError)
 	default:
-		a.progress.SetValue(progressScale)
-		msg := fmt.Sprintf("Done in %s: %s", time.Since(started).Round(time.Second), filepath.Base(out))
+		summary := fmt.Sprintf("Saved %s in %s", filepath.Base(out), time.Since(started).Round(time.Second))
 		if st, err := os.Stat(out); err == nil {
-			msg += " · " + media.FormatSize(st.Size())
+			summary += "  ·  " + media.FormatSize(st.Size())
 			if srcSize > 0 {
-				msg += fmt.Sprintf(" (was about %s, %.0f%% smaller)", media.FormatSize(srcSize), 100*(1-float64(st.Size())/float64(srcSize)))
+				summary += fmt.Sprintf(", %.0f%% smaller", 100*(1-float64(st.Size())/float64(srcSize)))
 			}
 		}
-		a.setStatus("%s", msg)
+		a.result = &exportResult{path: out, summary: summary}
+	}
+	a.refresh()
+}
+
+// showInFolder opens Explorer with the exported file selected.
+func (a *app) showInFolder() {
+	if a.result == nil {
+		return
+	}
+	cmd := exec.Command("explorer.exe")
+	// Explorer needs the path quoted after "/select,", which exec.Command's
+	// argument quoting does not produce.
+	cmd.SysProcAttr = &syscall.SysProcAttr{CmdLine: `explorer.exe /select,"` + a.result.path + `"`}
+	if err := cmd.Start(); err != nil {
+		a.flash("Couldn't open the folder.")
+		return
+	}
+	go func() { _ = cmd.Wait() }()
+}
+
+// Menu item IDs (0 means the menu was dismissed).
+const (
+	menuQualityBase = 100
+	menuCodecBase   = 200
+	menuHeightBase  = 300
+	menuSetStart    = 401
+	menuSetEnd      = 402
+	menuReset       = 403
+)
+
+func (a *app) qualityMenu(anchor fluent.Rect) {
+	var items []fluent.MenuItem
+	for _, q := range media.Qualities {
+		items = append(items, fluent.MenuItem{
+			ID:      menuQualityBase + int(q.ID),
+			Text:    q.Name + "\t" + q.Hint,
+			Checked: a.quality == q.ID,
+		})
+	}
+	items = append(items, fluent.MenuItem{Separator: true})
+	for _, c := range media.Codecs {
+		text := c.Name + "\t" + c.Hint
+		enc, ok := a.encoders[c.ID]
+		if a.encoders != nil && ok && !enc.Hardware() {
+			text += " (CPU)"
+		}
+		items = append(items, fluent.MenuItem{
+			ID:       menuCodecBase + int(c.ID),
+			Text:     text,
+			Checked:  a.codec == c.ID,
+			Disabled: a.encoders != nil && !ok,
+		})
+	}
+	id := a.popup(anchor, items)
+	switch {
+	case id >= menuCodecBase && id < menuCodecBase+len(media.Codecs):
+		a.codec = media.Codec(id - menuCodecBase)
+	case id >= menuQualityBase && id < menuQualityBase+len(media.Qualities):
+		a.quality = media.Quality(id - menuQualityBase)
+	}
+	a.refresh()
+}
+
+func (a *app) heightMenu(anchor fluent.Rect) {
+	var items []fluent.MenuItem
+	for _, h := range media.Resolutions {
+		text := heightName(h)
+		disabled := false
+		if h == 0 && a.info != nil {
+			text = fmt.Sprintf("Original (%d×%d)", a.info.Width, a.info.Height)
+		}
+		if h > 0 && a.info != nil && h >= a.info.Height {
+			disabled = true // would not be smaller than the source
+		}
+		items = append(items, fluent.MenuItem{ID: menuHeightBase + h, Text: text, Checked: a.height == h, Disabled: disabled})
+	}
+	if id := a.popup(anchor, items); id >= menuHeightBase {
+		a.height = id - menuHeightBase
+	}
+	a.refresh()
+}
+
+// trackMenu is the right-click menu of the timeline.
+func (a *app) trackMenu(t float64, anchor fluent.Rect) {
+	items := []fluent.MenuItem{
+		{ID: menuSetStart, Text: "Set start here\tI"},
+		{ID: menuSetEnd, Text: "Set end here\tO"},
+		{Separator: true},
+		{ID: menuReset, Text: "Keep the whole video", Disabled: a.markIn == 0 && a.markOut == 0},
+	}
+	switch a.popup(anchor, items) {
+	case menuSetStart:
+		a.setInAt(t)
+	case menuSetEnd:
+		a.setOutAt(t)
+	case menuReset:
+		a.clearMarks()
 	}
 }
+
+func (a *app) popup(anchor fluent.Rect, items []fluent.MenuItem) int {
+	id, err := fluent.PopupMenu(uintptr(a.barW.Handle()), anchor, items)
+	if err != nil {
+		slog.Warn("popup menu", "err", err)
+	}
+	// The menu ran its own message loop; drop the hover/pressed state.
+	a.bar.hover, a.bar.pressed = hitNone, hitNone
+	return id
+}
+
+func (a *app) qualityLabel() string {
+	return media.Qualities[a.quality].Name + "  ·  " + codecLabel(a.codec)
+}
+
+func (a *app) heightLabel() string { return heightName(a.height) }
+
+func heightName(h int) string {
+	if h == 0 {
+		return "Original"
+	}
+	return fmt.Sprintf("%dp", h)
+}
+
+func codecLabel(c media.Codec) string { return media.Codecs[c].Name }
 
 func absPath(p string) string {
 	if abs, err := filepath.Abs(p); err == nil {

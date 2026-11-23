@@ -12,67 +12,6 @@ import (
 	"strings"
 )
 
-// Encoder identifies a video encoder.
-type Encoder int
-
-// Supported encoders.
-const (
-	EncH264NVENC Encoder = iota
-	EncHEVCNVENC
-	EncAV1NVENC
-	EncH264CPU
-)
-
-// Encoders in the order they appear in the interface.
-var Encoders = []struct {
-	ID   Encoder
-	Name string
-}{
-	{EncH264NVENC, "H.264 (NVENC, GPU)"},
-	{EncHEVCNVENC, "HEVC/H.265 (NVENC, GPU)"},
-	{EncAV1NVENC, "AV1 (NVENC, RTX 40+)"},
-	{EncH264CPU, "H.264 (x264, CPU)"},
-}
-
-// ffmpegName returns the ffmpeg encoder name.
-func (e Encoder) ffmpegName() string {
-	switch e {
-	case EncHEVCNVENC:
-		return "hevc_nvenc"
-	case EncAV1NVENC:
-		return "av1_nvenc"
-	case EncH264CPU:
-		return "libx264"
-	default:
-		return "h264_nvenc"
-	}
-}
-
-// Quality is the size/quality preset.
-type Quality int
-
-// Quality presets.
-const (
-	QualityLight  Quality = iota // smaller file
-	QualityMedium                // balanced
-	QualityHigh                  // better picture
-)
-
-// Qualities in the order they appear in the interface.
-var Qualities = []string{"Light (smaller file)", "Medium", "High"}
-
-// Resolutions offered in the interface, by height. 0 keeps the original.
-var Resolutions = []struct {
-	Height int
-	Name   string
-}{
-	{0, "Original"},
-	{1440, "1440p"},
-	{1080, "1080p"},
-	{720, "720p"},
-	{480, "480p"},
-}
-
 // Job describes one export.
 type Job struct {
 	Input   string
@@ -110,26 +49,8 @@ func (j Job) Args() []string {
 		args = append(args, "-vf", fmt.Sprintf("scale=-2:%d:flags=lanczos", j.Height))
 	}
 
-	q := int(j.Quality)
-	switch j.Encoder {
-	case EncH264NVENC:
-		args = append(args, "-c:v", "h264_nvenc", "-preset", "p5", "-tune", "hq",
-			"-rc", "vbr", "-cq", strconv.Itoa([]int{30, 26, 22}[q]), "-b:v", "0",
-			"-spatial-aq", "1", "-pix_fmt", "yuv420p")
-	case EncHEVCNVENC:
-		args = append(args, "-c:v", "hevc_nvenc", "-preset", "p5", "-tune", "hq",
-			"-rc", "vbr", "-cq", strconv.Itoa([]int{32, 28, 24}[q]), "-b:v", "0",
-			"-spatial-aq", "1", "-pix_fmt", "yuv420p", "-tag:v", "hvc1")
-	case EncAV1NVENC:
-		args = append(args, "-c:v", "av1_nvenc", "-preset", "p5", "-tune", "hq",
-			"-rc", "vbr", "-cq", strconv.Itoa([]int{38, 32, 27}[q]), "-b:v", "0",
-			"-pix_fmt", "yuv420p")
-	case EncH264CPU:
-		args = append(args, "-c:v", "libx264", "-preset", "medium",
-			"-crf", strconv.Itoa([]int{28, 23, 19}[q]), "-pix_fmt", "yuv420p")
-	}
-
-	args = append(args, "-c:a", "aac", "-b:a", []string{"128k", "160k", "192k"}[q])
+	args = append(args, j.Encoder.videoArgs(j.Quality)...)
+	args = append(args, "-c:a", "aac", "-b:a", []string{"128k", "160k", "192k"}[j.Quality])
 	args = append(args, "-movflags", "+faststart", j.Output)
 	return args
 }
@@ -216,7 +137,7 @@ func ProbeEncoder(ctx context.Context, enc Encoder) bool {
 	}
 	cmd := exec.CommandContext(ctx, ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error",
 		"-f", "lavfi", "-i", "color=c=black:s=256x256:d=0.2",
-		"-c:v", enc.ffmpegName(), "-f", "null", "-")
+		"-c:v", enc.String(), "-f", "null", "-")
 	hideWindow(cmd)
 	return cmd.Run() == nil
 }

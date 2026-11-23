@@ -15,6 +15,7 @@ import (
 
 func (a *app) openDialog() {
 	if a.exporting() {
+		a.flash("Wait for the export to finish before opening another video.")
 		return
 	}
 	dlg := walk.FileDialog{
@@ -35,18 +36,18 @@ func (a *app) openDialog() {
 // load probes the file off the UI thread and then opens it in the player.
 func (a *app) load(path string) {
 	if a.exporting() {
-		a.setStatus("Wait for the export to finish before opening another video.")
+		a.flash("Wait for the export to finish before opening another video.")
 		return
 	}
-	a.setStatus("Reading %s...", filepath.Base(path))
+	a.flash("Opening " + filepath.Base(path) + "…")
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		info, err := media.Probe(ctx, path)
 		a.mw.Synchronize(func() {
 			if err != nil {
-				a.setStatus("Could not read the file.")
-				walk.MsgBox(a.mw, appName, "Could not read the video:\n"+err.Error(), walk.MsgBoxIconError)
+				a.flash("Couldn't open that file.")
+				walk.MsgBox(a.mw, appName, "Couldn't read the video:\n"+err.Error(), walk.MsgBoxIconError)
 				return
 			}
 			a.opened(info)
@@ -59,39 +60,53 @@ func (a *app) opened(info media.Info) {
 	a.duration = info.Duration
 	a.pos = 0
 	a.markIn, a.markOut = 0, 0
-	a.loopCB.SetChecked(false)
-	a.seek.SetRange(0, int(info.Duration*sliderScale))
-	a.setSlider(0)
-
-	a.mw.SetTitle(appName + " - " + filepath.Base(info.Path))
-	a.infoLbl.SetText(describe(info))
-	a.progress.SetValue(0)
-	if err := a.player.Command("loadfile", info.Path); err != nil {
-		a.setStatus("mpv: %v", err)
-	} else {
-		a.setStatus("Ready. Space = play/pause · , and . = frame by frame · I/O = set start/end")
+	a.result = nil
+	a.note = ""
+	if a.height >= info.Height {
+		a.height = 0 // never upscale: keep the original
 	}
-	a.updateControls()
+
+	a.mw.SetTitle(filepath.Base(info.Path) + " - " + appName)
+	if err := a.player.Command("loadfile", info.Path); err != nil {
+		a.flash("Playback: " + err.Error())
+	}
+	a.stage.Invalidate()
+	a.refresh()
 }
 
-// describe summarizes the file for the information label.
+// describe summarizes the file for the footer.
 func describe(i media.Info) string {
 	parts := []string{
-		filepath.Base(i.Path),
-		fmt.Sprintf("%d×%d @ %.4g fps", i.Width, i.Height, i.FPS),
-		i.VideoCodec + " / " + i.PixFmt,
+		fmt.Sprintf("%d×%d", i.Width, i.Height),
+		fmt.Sprintf("%.4g fps", i.FPS),
+		codecName(i.VideoCodec),
 	}
 	switch i.AudioTracks {
 	case 0:
 		parts = append(parts, "no audio")
 	case 1:
-		parts = append(parts, "audio "+i.AudioCodec)
+		parts = append(parts, "1 audio track")
 	default:
 		parts = append(parts, fmt.Sprintf("%d audio tracks", i.AudioTracks))
 	}
-	parts = append(parts, media.FormatTime(i.Duration), media.FormatSize(i.Size))
+	parts = append(parts, media.FormatSize(i.Size))
 	if i.BitRate > 0 {
 		parts = append(parts, fmt.Sprintf("%.1f Mb/s", float64(i.BitRate)/1e6))
 	}
 	return strings.Join(parts, "  ·  ")
+}
+
+// codecName turns an ffprobe codec name into its usual spelling.
+func codecName(c string) string {
+	switch c {
+	case "h264":
+		return "H.264"
+	case "hevc":
+		return "HEVC"
+	case "av1":
+		return "AV1"
+	case "vp9":
+		return "VP9"
+	}
+	return strings.ToUpper(c)
 }

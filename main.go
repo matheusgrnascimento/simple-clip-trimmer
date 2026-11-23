@@ -11,51 +11,64 @@ import (
 
 	"github.com/tailscale/walk"
 
+	"github.com/matheusgrnascimento/simple-clip-trimmer/internal/fluent"
 	"github.com/matheusgrnascimento/simple-clip-trimmer/internal/media"
 	"github.com/matheusgrnascimento/simple-clip-trimmer/internal/mpv"
 )
 
 const appName = "Simple Clip Trimmer"
 
-// app holds the window, its widgets and the editing state. Every field is
-// only touched on the UI thread, except player (thread safe) and closing.
+// app holds the window and the editing state. Every field is only touched
+// on the UI thread, except player (thread safe) and closing.
 type app struct {
 	mw    *walk.MainWindow
-	video *walk.CustomWidget
+	stage *walk.CustomWidget // video area; mpv draws in a child window of it
+	barW  *walk.CustomWidget // custom-drawn control bar
+	bar   *bar
 
-	playBtn, prevBtn, nextBtn       *walk.PushButton
-	markInBtn, markOutBtn, clearBtn *walk.PushButton
-	exportBtn, cancelBtn            *walk.PushButton
-	loopCB                          *walk.CheckBox
-	seek                            *walk.Slider
-	timeLbl, infoLbl, inLbl, outLbl *walk.Label
-	cutLbl, statusLbl               *walk.Label
-	resCB, encCB, qualCB            *walk.ComboBox
-	progress                        *walk.ProgressBar
+	pal          fluent.Palette
+	fonts        *fluent.Fonts
+	stagePainter *fluent.Painter
 
 	player  *mpv.Player
 	evDone  chan struct{}
 	closing atomic.Bool
 
-	info           *media.Info
-	duration, pos  float64
-	paused         bool
-	markIn         float64
-	markOut        float64 // 0 = to the end
-	updatingSlider bool
-	lastUserSeek   time.Time
+	info          *media.Info
+	duration, pos float64
+	paused        bool
+	markIn        float64
+	markOut       float64 // 0 = to the end
+	lastUserSeek  time.Time
+
+	height   int // output height, 0 = original
+	quality  media.Quality
+	codec    media.Codec
+	encoders map[media.Codec]media.Encoder // fastest working encoder per codec; nil until checked
 
 	cancelExport context.CancelFunc
-	encMissing   map[media.Encoder]bool // encoders that do not work on this machine
+	progress     *exportProgress // running export
+	result       *exportResult   // last finished export
+	note         string          // short message shown in the footer
+	noteSeq      int
 }
 
 func main() {
+	// Must run before any window or menu exists.
+	fluent.AllowDarkMenus()
+
 	wapp, err := walk.InitApp()
 	if err != nil {
 		slog.Error("init walk", "err", err)
 		os.Exit(1)
 	}
-	a := &app{paused: true}
+	fonts, err := fluent.LoadFonts()
+	if err != nil {
+		walk.MsgBox(nil, appName, "Could not load the Windows fonts:\n"+err.Error(), walk.MsgBoxIconError)
+		return
+	}
+	a := &app{paused: true, fonts: fonts, pal: loadPalette(), height: 1080, quality: media.QualityMedium}
+	a.bar = &bar{a: a}
 	if err := a.buildWindow(); err != nil {
 		walk.MsgBox(nil, appName, "Could not create the window:\n"+err.Error(), walk.MsgBoxIconError)
 		return
@@ -65,7 +78,6 @@ func main() {
 		return
 	}
 	a.checkTools()
-	a.updateControls()
 
 	if len(os.Args) > 1 {
 		a.load(os.Args[1])
