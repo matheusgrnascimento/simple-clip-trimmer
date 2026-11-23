@@ -1,0 +1,34 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="Simple Clip Trimmer" Manufacturer="Matheus Nascimento"
+           Version="$(var.Version)" UpgradeCode="6B1F3C52-8D0E-4A57-9C3E-2F7A41D5B9E8"
+           Scope="perMachine" Compressed="yes">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Simple Clip Trimmer is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <Icon Id="AppIcon.ico" SourceFile="assets\icon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon.ico" />
+    <WixVariable Id="WixUILicenseRtf" Value="installer\license.rtf" />
+    <ui:WixUI Id="WixUI_Minimal" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Simple Clip Trimmer" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+
+    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+      <Component>
+        <File Id="AppExe" Source="build\simple-clip-trimmer.exe" KeyPath="yes">
+          <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder"
+                    Name="Simple Clip Trimmer" Icon="AppIcon.ico" Advertise="yes" />
+        </File>
+      </Component>
+      <Component>
+        <File Source="build\libmpv-2.dll" />
+      </Component>
+    </ComponentGroup>
+
+    <Feature Id="Main" Title="Simple Clip Trimmer" Level="1">
+      <ComponentGroupRef Id="AppFiles" />
+    </Feature>
+  </Package>
+</Wix>
+
