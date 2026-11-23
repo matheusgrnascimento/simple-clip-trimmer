@@ -5,8 +5,10 @@
 .DESCRIPTION
     1. Builds build\simple-clip-trimmer.exe with cgo (needs GCC in PATH and
        the libmpv files in third_party\libmpv, see setup.ps1).
-    2. Replaces the MinGW default manifest with app.manifest (Common
-       Controls v6, DPI awareness), which the walk UI library requires.
+    2. Writes the Windows resources with tools\winres: app.manifest in place
+       of the MinGW default manifest (Common Controls v6 and DPI awareness,
+       which the walk UI library requires) and the app icon,
+       assets\icon.ico.
     3. Copies libmpv-2.dll next to the executable.
 
 .PARAMETER Console
@@ -31,7 +33,7 @@ if (-not $Console) { $ldflags += " -H windowsgui" }
 go build -trimpath -ldflags $ldflags -o $out .
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-go run ./tools/setmanifest $out app.manifest
+go run ./tools/winres -manifest app.manifest -icon assets\icon.ico $out
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Copy-Item $mpvDll build\ -Force

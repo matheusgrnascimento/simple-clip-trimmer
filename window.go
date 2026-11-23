@@ -74,6 +74,7 @@ func (a *app) buildWindow() error {
 	if err := fluent.Subclass(uintptr(a.barW.Handle()), a.bar.message); err != nil {
 		slog.Warn("subclass control bar", "err", err)
 	}
+	a.setWindowIcon()
 	a.addShortcuts()
 	return nil
 }
