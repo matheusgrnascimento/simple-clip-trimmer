@@ -46,6 +46,7 @@ const (
 	EventFileLoaded      EventID = C.MPV_EVENT_FILE_LOADED
 	EventPlaybackRestart EventID = C.MPV_EVENT_PLAYBACK_RESTART
 	EventPropertyChange  EventID = C.MPV_EVENT_PROPERTY_CHANGE
+	EventClientMessage   EventID = C.MPV_EVENT_CLIENT_MESSAGE
 )
 
 // Event is a Go copy of mpv_event, with the property value already decoded
@@ -59,6 +60,10 @@ type Event struct {
 	Flag   bool    // value when Format == FormatFlag
 	Int    int64   // value when Format == FormatInt64
 	Str    string  // value when Format == FormatString
+
+	// Args holds the arguments of EventClientMessage (sent by the
+	// "script-message" command, for example from a key binding).
+	Args []string
 }
 
 // Player is a libmpv handle. Its methods are thread safe (the libmpv client
@@ -163,6 +168,13 @@ func (p *Player) Observe(id uint64, name string, format Format) error {
 func (p *Player) WaitEvent(timeout float64) Event {
 	e := C.mpv_wait_event(p.h, C.double(timeout))
 	ev := Event{ID: EventID(e.event_id), Error: mpvErr(e.error)}
+	if ev.ID == EventClientMessage && e.data != nil {
+		msg := (*C.mpv_event_client_message)(e.data)
+		for _, a := range unsafe.Slice(msg.args, int(msg.num_args)) {
+			ev.Args = append(ev.Args, C.GoString(a))
+		}
+		return ev
+	}
 	if ev.ID != EventPropertyChange || e.data == nil {
 		return ev
 	}
