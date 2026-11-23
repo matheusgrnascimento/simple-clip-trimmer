@@ -1,0 +1,3 @@
+# Keep LF in every checkout, also with core.autocrlf=true, so gofmt -l .
+# prints nothing on a fresh clone.
+* text=auto eol=lf
