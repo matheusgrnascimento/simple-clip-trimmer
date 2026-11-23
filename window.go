@@ -163,14 +163,11 @@ func (a *app) cutEnd() float64 {
 	return a.duration
 }
 
-// blit draws a painter's image onto a canvas at the origin.
-func blit(c *walk.Canvas, p *fluent.Painter, dpi int) error {
-	bmp, err := walk.NewBitmapFromImageForDPI(p.Img, dpi)
-	if err != nil {
-		return err
-	}
-	defer bmp.Dispose()
-	return c.DrawImagePixels(bmp, walk.Point{})
+// blit draws a painter's image onto a canvas at the origin. It skips walk's
+// bitmap conversion, which reads the image pixel by pixel and allocates for
+// each one, and was most of the cost of a repaint.
+func blit(c *walk.Canvas, p *fluent.Painter) error {
+	return p.Blit(uintptr(c.HDC()))
 }
 
 func walkColor(c color.NRGBA) walk.Color { return walk.RGB(c.R, c.G, c.B) }

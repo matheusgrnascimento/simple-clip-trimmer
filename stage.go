@@ -27,7 +27,7 @@ func (a *app) paintStage(c *walk.Canvas, _ walk.Rectangle) error {
 		p.TextCentered(a.fonts.Text(p.S(20)), "Open a video", cx, cy+p.S(4), a.pal.Text)
 		p.TextCentered(a.fonts.Text(p.S(14)), "Drop a file here, or click to browse", cx, cy+p.S(34), a.pal.TextSecondary)
 	}
-	return blit(c, p, dpi)
+	return blit(c, p)
 }
 
 func (a *app) onStageMouseDown(x, y int, button walk.MouseButton) {

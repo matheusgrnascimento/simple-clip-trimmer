@@ -34,6 +34,7 @@ type Painter struct {
 	Img   *image.RGBA
 	Scale float64 // device pixels per DIP (DPI / 96)
 	ras   vector.Rasterizer
+	bgra  []byte // Blit's conversion buffer, reused between repaints
 }
 
 // NewPainter returns a painter for an image of the given size, reusing the

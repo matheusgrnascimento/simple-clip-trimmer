@@ -61,6 +61,18 @@ func TestNewPainterReusesBuffer(t *testing.T) {
 	}
 }
 
+func TestSwapRB(t *testing.T) {
+	src := []byte{0x11, 0x22, 0x33, 0xFF, 0xAA, 0xBB, 0xCC, 0x80}
+	dst := make([]byte, len(src))
+	swapRB(dst, src)
+	want := []byte{0x33, 0x22, 0x11, 0xFF, 0xCC, 0xBB, 0xAA, 0x80}
+	for i := range want {
+		if dst[i] != want[i] {
+			t.Fatalf("swapRB = % x, want % x", dst, want)
+		}
+	}
+}
+
 func TestRectContains(t *testing.T) {
 	r := Rect{10, 10, 5, 5}
 	if !r.Contains(10, 14.9) || r.Contains(15, 12) || r.Contains(9.9, 12) {

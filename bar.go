@@ -67,7 +67,7 @@ func (b *bar) paint(c *walk.Canvas, _ walk.Rectangle) error {
 	b.l = barLayout{}
 	b.paintTimeline(p, float64(bounds.Width))
 	b.paintFooter(p, float64(bounds.Width), float64(bounds.Height))
-	return blit(c, p, dpi)
+	return blit(c, p)
 }
 
 func (b *bar) paintTimeline(p *fluent.Painter, w float64) {
