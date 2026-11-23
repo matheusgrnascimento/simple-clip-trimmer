@@ -20,6 +20,7 @@ const (
 	IconChevronDown = ""
 	IconVideo       = ""
 	IconCrop        = ""
+	IconCheckMark   = ""
 )
 
 // Fonts loads the Windows UI and icon fonts and caches faces by pixel size.

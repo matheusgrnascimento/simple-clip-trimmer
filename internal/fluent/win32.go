@@ -15,11 +15,6 @@ var (
 	comctl32   = windows.NewLazySystemDLL("comctl32.dll")
 	uxthemeDLL = windows.NewLazySystemDLL("uxtheme.dll")
 
-	procCreatePopupMenu       = user32.NewProc("CreatePopupMenu")
-	procAppendMenuW           = user32.NewProc("AppendMenuW")
-	procTrackPopupMenuEx      = user32.NewProc("TrackPopupMenuEx")
-	procDestroyMenu           = user32.NewProc("DestroyMenu")
-	procClientToScreen        = user32.NewProc("ClientToScreen")
 	procTrackMouseEvent       = user32.NewProc("TrackMouseEvent")
 	procDwmSetWindowAttribute = dwmapi.NewProc("DwmSetWindowAttribute")
 	procSetWindowSubclass     = comctl32.NewProc("SetWindowSubclass")
@@ -32,8 +27,8 @@ const (
 	dwmwaCaptionColor         = 35
 )
 
-// ApplyFrame makes the title bar follow the palette: dark or light frame
-// and a caption color that blends with the window.
+// ApplyFrame makes the window frame follow the palette: dark or light
+// borders and shadow, and a caption color that blends with the window.
 func ApplyFrame(hwnd uintptr, p Palette) {
 	var dark int32
 	if p.Dark {
@@ -44,10 +39,10 @@ func ApplyFrame(hwnd uintptr, p Palette) {
 	procDwmSetWindowAttribute.Call(hwnd, dwmwaCaptionColor, uintptr(unsafe.Pointer(&caption)), 4)
 }
 
-// AllowDarkMenus lets native popup menus follow the system dark mode. It
-// uses the undocumented uxtheme SetPreferredAppMode (ordinal 135) and
-// FlushMenuThemes (ordinal 136), present since Windows 10 1903; on older
-// systems it does nothing.
+// AllowDarkMenus lets native menus (the window's system menu) follow the
+// system dark mode. It uses the undocumented uxtheme SetPreferredAppMode
+// (ordinal 135) and FlushMenuThemes (ordinal 136), present since Windows 10
+// 1903; on older systems it does nothing.
 func AllowDarkMenus() {
 	if err := uxthemeDLL.Load(); err != nil {
 		return
@@ -64,83 +59,7 @@ func AllowDarkMenus() {
 	}
 }
 
-// MenuItem is an entry of a popup menu. ID 0 with Separator set adds a
-// separator line.
-type MenuItem struct {
-	ID        int
-	Text      string
-	Checked   bool
-	Disabled  bool
-	Separator bool
-}
-
-// Menu flags (winuser.h).
-const (
-	mfString    = 0x0000
-	mfGrayed    = 0x0001
-	mfChecked   = 0x0008
-	mfSeparator = 0x0800
-
-	tpmLeftAlign   = 0x0000
-	tpmBottomAlign = 0x0020
-	tpmNoNotify    = 0x0080
-	tpmReturnCmd   = 0x0100
-	tpmVertical    = 0x0040
-)
-
-type point struct{ X, Y int32 }
-
-type tpmParams struct {
-	Size    uint32
-	Exclude struct{ Left, Top, Right, Bottom int32 }
-}
-
-// PopupMenu shows a native menu above the client rectangle anchor of hwnd
-// (in client pixels) and returns the chosen item ID, or 0 if dismissed.
-func PopupMenu(hwnd uintptr, anchor Rect, items []MenuItem) (int, error) {
-	m, _, err := procCreatePopupMenu.Call()
-	if m == 0 {
-		return 0, fmt.Errorf("CreatePopupMenu: %w", err)
-	}
-	defer procDestroyMenu.Call(m)
-
-	for _, it := range items {
-		if it.Separator {
-			procAppendMenuW.Call(m, mfSeparator, 0, 0)
-			continue
-		}
-		flags := uintptr(mfString)
-		if it.Checked {
-			flags |= mfChecked
-		}
-		if it.Disabled {
-			flags |= mfGrayed
-		}
-		text, err := windows.UTF16PtrFromString(it.Text)
-		if err != nil {
-			return 0, err
-		}
-		procAppendMenuW.Call(m, flags, uintptr(it.ID), uintptr(unsafe.Pointer(text)))
-	}
-
-	tl := point{int32(anchor.X), int32(anchor.Y)}
-	br := point{int32(anchor.Right()), int32(anchor.Bottom())}
-	procClientToScreen.Call(hwnd, uintptr(unsafe.Pointer(&tl)))
-	procClientToScreen.Call(hwnd, uintptr(unsafe.Pointer(&br)))
-	params := tpmParams{Size: uint32(unsafe.Sizeof(tpmParams{}))}
-	params.Exclude.Left, params.Exclude.Top = tl.X, tl.Y
-	params.Exclude.Right, params.Exclude.Bottom = br.X, br.Y
-
-	// Open upward from the anchor (the controls sit at the bottom of the
-	// window); TPMPARAMS keeps the menu from covering the anchor if Windows
-	// has to flip it.
-	id, _, _ := procTrackPopupMenuEx.Call(m,
-		tpmLeftAlign|tpmBottomAlign|tpmVertical|tpmReturnCmd|tpmNoNotify,
-		uintptr(tl.X), uintptr(tl.Y), hwnd, uintptr(unsafe.Pointer(&params)))
-	return int(id), nil
-}
-
-// WM_MOUSELEAVE and friends.
+// Window messages walk does not name.
 const (
 	WMMouseLeave    = 0x02A3
 	WMSettingChange = 0x001A
@@ -155,9 +74,11 @@ type trackMouseEvent struct {
 }
 
 // TrackMouseLeave asks Windows to send WM_MOUSELEAVE to hwnd when the
-// cursor leaves it.
-func TrackMouseLeave(hwnd uintptr) {
-	t := trackMouseEvent{Flags: tmeLeave, Hwnd: hwnd}
+// cursor leaves its client area.
+func TrackMouseLeave(hwnd uintptr) { trackMouse(hwnd, tmeLeave) }
+
+func trackMouse(hwnd uintptr, flags uint32) {
+	t := trackMouseEvent{Flags: flags, Hwnd: hwnd}
 	t.Size = uint32(unsafe.Sizeof(t))
 	procTrackMouseEvent.Call(uintptr(unsafe.Pointer(&t)))
 }

@@ -27,8 +27,13 @@ type Palette struct {
 	ControlHover   color.NRGBA
 	ControlPressed color.NRGBA
 	ControlBorder  color.NRGBA
-	SubtleHover    color.NRGBA // translucent hover of icon (ghost) buttons
+	SubtleHover    color.NRGBA // translucent hover of icon (ghost) buttons and menu items
+	SubtlePressed  color.NRGBA // translucent pressed state of the same
+	SubtleSelected color.NRGBA // background of the current choice in a menu
 	Rail           color.NRGBA // timeline rail
+
+	Flyout        color.NRGBA // menu (flyout) background
+	FlyoutDivider color.NRGBA // separator line inside a menu
 
 	Accent        color.NRGBA
 	AccentHover   color.NRGBA
@@ -124,7 +129,11 @@ func NewPalette(dark bool, accentPalette []byte) Palette {
 			ControlPressed: rgb(0x32, 0x32, 0x32),
 			ControlBorder:  rgb(0x40, 0x40, 0x40),
 			SubtleHover:    color.NRGBA{0xFF, 0xFF, 0xFF, 0x0F},
+			SubtlePressed:  color.NRGBA{0xFF, 0xFF, 0xFF, 0x0A},
+			SubtleSelected: color.NRGBA{0xFF, 0xFF, 0xFF, 0x0B},
 			Rail:           rgb(0x9A, 0x9A, 0x9A),
+			Flyout:         rgb(0x2C, 0x2C, 0x2C),
+			FlyoutDivider:  rgb(0x3D, 0x3D, 0x3D),
 			Accent:         accent,
 			AccentHover:    mix(accent, rgb(0x20, 0x20, 0x20), 0.10),
 			AccentPressed:  mix(accent, rgb(0x20, 0x20, 0x20), 0.20),
@@ -149,7 +158,11 @@ func NewPalette(dark bool, accentPalette []byte) Palette {
 		ControlPressed: rgb(0xF0, 0xF0, 0xF0),
 		ControlBorder:  rgb(0xDC, 0xDC, 0xDC),
 		SubtleHover:    color.NRGBA{0x00, 0x00, 0x00, 0x0A},
+		SubtlePressed:  color.NRGBA{0x00, 0x00, 0x00, 0x06},
+		SubtleSelected: color.NRGBA{0x00, 0x00, 0x00, 0x07},
 		Rail:           rgb(0x8A, 0x8A, 0x8A),
+		Flyout:         rgb(0xF9, 0xF9, 0xF9),
+		FlyoutDivider:  rgb(0xE5, 0xE5, 0xE5),
 		Accent:         accent,
 		AccentHover:    mix(accent, rgb(0xF3, 0xF3, 0xF3), 0.10),
 		AccentPressed:  mix(accent, rgb(0xF3, 0xF3, 0xF3), 0.20),

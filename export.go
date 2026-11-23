@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -231,31 +232,36 @@ const (
 )
 
 func (a *app) qualityMenu(anchor fluent.Rect) {
-	var items []fluent.MenuItem
+	items := []fluent.MenuItem{{Header: true, Text: "Quality"}}
 	for _, q := range media.Qualities {
 		items = append(items, fluent.MenuItem{
 			ID:      menuQualityBase + int(q.ID),
-			Text:    q.Name + "\t" + q.Hint,
+			Text:    q.Name,
+			Hint:    sentence(q.Hint),
 			Checked: a.quality == q.ID,
 		})
 	}
-	items = append(items, fluent.MenuItem{Separator: true})
+	items = append(items, fluent.MenuItem{Separator: true}, fluent.MenuItem{Header: true, Text: "Format"})
 	for _, c := range media.Codecs {
-		text := c.Name + "\t" + c.Hint
+		hint := sentence(c.Hint)
 		enc, ok := a.encoders[c.ID]
-		if a.encoders != nil && ok && !enc.Hardware() {
-			text += " (CPU)"
+		switch {
+		case a.encoders != nil && !ok:
+			hint = "Not available"
+		case a.encoders != nil && !enc.Hardware():
+			hint += " · CPU"
 		}
 		items = append(items, fluent.MenuItem{
 			ID:       menuCodecBase + int(c.ID),
-			Text:     text,
+			Text:     c.Name,
+			Hint:     hint,
 			Checked:  a.codec == c.ID,
 			Disabled: a.encoders != nil && !ok,
 		})
 	}
 	items = append(items,
 		fluent.MenuItem{Separator: true},
-		fluent.MenuItem{ID: menuNoAudio, Text: "Remove audio", Checked: a.noAudio},
+		fluent.MenuItem{ID: menuNoAudio, Text: "Remove audio", Toggle: true, Checked: a.noAudio},
 	)
 	id := a.popup(anchor, items)
 	switch {
@@ -270,18 +276,20 @@ func (a *app) qualityMenu(anchor fluent.Rect) {
 }
 
 func (a *app) heightMenu(anchor fluent.Rect) {
-	var items []fluent.MenuItem
+	items := []fluent.MenuItem{{Header: true, Text: "Resolution"}}
 	ow, oh := a.outputSize() // the crop, or the whole source
 	for _, h := range media.Resolutions {
-		text := heightName(h)
-		disabled := false
-		if h == 0 && oh > 0 {
-			text = fmt.Sprintf("Original (%d×%d)", ow, oh)
+		it := fluent.MenuItem{ID: menuHeightBase + h, Text: heightName(h), Checked: a.height == h}
+		switch {
+		case oh == 0:
+		case h == 0:
+			it.Hint = fmt.Sprintf("%d×%d", ow, oh)
+		case h >= oh:
+			it.Disabled = true // would not be smaller than the source
+		default:
+			it.Hint = fmt.Sprintf("%d×%d", scaledWidth(ow, oh, h), h)
 		}
-		if h > 0 && oh > 0 && h >= oh {
-			disabled = true // would not be smaller than the source
-		}
-		items = append(items, fluent.MenuItem{ID: menuHeightBase + h, Text: text, Checked: a.height == h, Disabled: disabled})
+		items = append(items, it)
 	}
 	if id := a.popup(anchor, items); id >= menuHeightBase {
 		a.height = id - menuHeightBase
@@ -289,11 +297,16 @@ func (a *app) heightMenu(anchor fluent.Rect) {
 	a.refresh()
 }
 
+// scaledWidth is the even output width ffmpeg's scale=-2:h gives.
+func scaledWidth(w, h, toH int) int {
+	return int(math.Round(float64(w)*float64(toH)/float64(h)/2)) * 2
+}
+
 // trackMenu is the right-click menu of the timeline.
 func (a *app) trackMenu(t float64, anchor fluent.Rect) {
 	items := []fluent.MenuItem{
-		{ID: menuSetStart, Text: "Set start here\tI"},
-		{ID: menuSetEnd, Text: "Set end here\tO"},
+		{ID: menuSetStart, Text: "Set start here", Hint: "I"},
+		{ID: menuSetEnd, Text: "Set end here", Hint: "O"},
 		{Separator: true},
 		{ID: menuReset, Text: "Keep the whole video", Disabled: a.markIn == 0 && a.markOut == 0},
 	}
@@ -307,16 +320,24 @@ func (a *app) trackMenu(t float64, anchor fluent.Rect) {
 	}
 }
 
+// popup opens a flyout menu above anchor, given in control bar pixels.
 func (a *app) popup(anchor fluent.Rect, items []fluent.MenuItem) int {
-	id, err := fluent.PopupMenu(uintptr(a.barW.Handle()), anchor, items)
-	if err != nil {
-		slog.Warn("popup menu", "err", err)
-	}
+	tl := win.POINT{X: int32(anchor.X), Y: int32(anchor.Y)}
+	win.ClientToScreen(a.barW.Handle(), &tl)
+	screen := fluent.Rect{X: float64(tl.X), Y: float64(tl.Y), W: anchor.W, H: anchor.H}
+	id := fluent.ShowMenu(uintptr(a.mw.Handle()), screen, items, a.pal, a.fonts)
 	// The menu ran its own message loop; drop the hover/pressed state.
 	a.bar.hover, a.bar.pressed = hitNone, hitNone
 	return id
 }
 
+// sentence capitalizes the first letter, for hints shown on their own.
+func sentence(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
 func (a *app) qualityLabel() string {
 	s := media.Qualities[a.quality].Name + "  ·  " + codecLabel(a.codec)
 	if a.noAudio {

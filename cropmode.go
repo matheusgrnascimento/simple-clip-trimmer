@@ -327,9 +327,16 @@ func handleCursor(h crop.Handle) walk.Cursor {
 
 // aspectMenu picks the aspect ratio of the crop box.
 func (a *app) aspectMenu(anchor fluent.Rect) {
-	var items []fluent.MenuItem
+	items := []fluent.MenuItem{{Header: true, Text: "Aspect ratio"}}
 	for i, as := range cropAspects {
-		items = append(items, fluent.MenuItem{ID: menuAspectBase + i, Text: as.Name, Checked: a.cr.aspect == i})
+		it := fluent.MenuItem{ID: menuAspectBase + i, Text: as.Name, Checked: a.cr.aspect == i}
+		switch {
+		case as.Ratio == 0:
+			it.Hint = "Any shape"
+		case as.Ratio < 0:
+			it.Hint = fmt.Sprintf("%d×%d", a.info.Width, a.info.Height)
+		}
+		items = append(items, it)
 	}
 	id := a.popup(anchor, items)
 	if id < menuAspectBase || id >= menuAspectBase+len(cropAspects) {
