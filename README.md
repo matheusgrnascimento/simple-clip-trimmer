@@ -4,7 +4,9 @@ Simple desktop app for trimming, resizing and compressing videos, such as the la
 
 ## Features
 
-- Windows 11 look: light/dark theme and accent color following the system (and updating when they change), title bar matching the app, Segoe UI Variable and Segoe Fluent Icons, anti-aliased controls and native Windows 11 menus;
+- Windows 11 look: light/dark theme and accent color following the system (and updating when they change), Segoe UI Variable and Segoe Fluent Icons, and anti-aliased controls;
+- a tall (48 px) title bar drawn by the app, like Photos or Media Player, with Windows 11 minimize, maximize and close buttons. The window keeps its native frame: dragging, double-click to maximize, the top edge and corners resize, the system menu, and the maximize button reports itself to Windows as one (`HTMAXBUTTON`), which is what Snap layouts look for;
+- drop-down menus in the Windows 11 flyout style: rounded corners and shadow, roomy rows with hover, section headers, an accent pill on the current choice, a check mark for on/off options, and hints on the right (the output size of each resolution, what each format is for, shortcuts). They work with the mouse and with ↑/↓, Enter and Esc;
 - few controls: the video, one timeline row and one footer. There is no menu bar;
 - open a video by clicking the empty video area, with the open button in the footer, by dropping it on the window or by passing it as an argument;
 - file information in the footer: resolution, frame rate, codec, number of audio tracks, size and bit rate;
@@ -49,7 +51,17 @@ With the requirements above in place:
 .\build.ps1 -Console  # keeps the console, to see logs and panics
 ```
 
-`build.ps1` builds with cgo, then runs `tools\setmanifest` to replace the default manifest that the MinGW GCC links into every executable with `app.manifest` (Common Controls v6 and DPI awareness, which `walk` requires), and copies `libmpv-2.dll` next to the executable.
+`build.ps1` builds with cgo, then runs `tools\winres` to write the Windows resources: `app.manifest` in place of the default manifest that the MinGW GCC links into every executable (Common Controls v6 and DPI awareness, which `walk` requires) and the app icon. Then it copies `libmpv-2.dll` next to the executable.
+
+## Icon
+
+The app icon is a blue rounded square (the same gradient as Simple RTSP Viewer's) with a white play triangle between two yellow trim brackets. It is drawn from code by `tools\genicon`, which renders each size of `assets\icon.ico` (16 to 256 px) directly with 4×4 supersampling, so the small sizes stay sharp, and writes the 256 px image to `assets\icon.png`:
+
+```powershell
+go run ./tools/genicon
+```
+
+`build.ps1` embeds `icon.ico` in the executable (Explorer, the Start menu and shortcuts) and the app sets it as the window icon (taskbar and Alt+Tab); the title bar draws `icon.png`, which is embedded in the binary.
 
 ## Running
 
