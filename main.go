@@ -38,6 +38,8 @@ type app struct {
 	closing atomic.Bool
 
 	info          *media.Info
+	loading       bool // a file is being probed
+	stageDown     bool // the left button went down on the empty stage
 	duration, pos float64
 	paused        bool
 	markIn        float64

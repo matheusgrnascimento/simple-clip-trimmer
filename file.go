@@ -14,6 +14,9 @@ import (
 )
 
 func (a *app) openDialog() {
+	if a.loading {
+		return
+	}
 	if a.exporting() {
 		a.flash("Wait for the export to finish before opening another video.")
 		return
@@ -40,11 +43,13 @@ func (a *app) load(path string) {
 		return
 	}
 	a.flash("Opening " + filepath.Base(path) + "…")
+	a.loading = true
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		info, err := media.Probe(ctx, path)
 		a.mw.Synchronize(func() {
+			a.loading = false
 			if err != nil {
 				a.flash("Couldn't open that file.")
 				walk.MsgBox(a.mw, appName, "Couldn't read the video:\n"+err.Error(), walk.MsgBoxIconError)

@@ -31,6 +31,7 @@ func (a *app) paintStage(c *walk.Canvas, _ walk.Rectangle) error {
 }
 
 func (a *app) onStageMouseDown(x, y int, button walk.MouseButton) {
+	a.stageDown = button == walk.LeftButton && a.info == nil && !a.loading
 	if a.cr.active {
 		a.cropMouseDown(x, y, button)
 	}
@@ -51,7 +52,8 @@ func (a *app) onStageMouseUp(x, y int, button walk.MouseButton) {
 	switch {
 	case a.cr.active:
 		a.cropMouseUp(x, y, button)
-	case button == walk.LeftButton && a.info == nil:
+	case button == walk.LeftButton && a.stageDown && a.info == nil && !a.loading:
+		a.stageDown = false
 		a.openDialog()
 	}
 }
