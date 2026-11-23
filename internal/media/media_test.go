@@ -2,6 +2,7 @@ package media
 
 import (
 	"context"
+	"image"
 	"math"
 	"os"
 	"os/exec"
@@ -30,6 +31,26 @@ func TestJobArgs(t *testing.T) {
 	}
 	if !strings.HasSuffix(got, " out.mp4") {
 		t.Errorf("output must be the last argument: %s", got)
+	}
+}
+
+func TestJobArgsCropAndNoAudio(t *testing.T) {
+	r := image.Rect(320, 0, 1400, 1080)
+	j := Job{Input: "in.mp4", Output: "out.mp4", Height: 720, SrcHeight: 1440,
+		Crop: &r, NoAudio: true, Encoder: EncH264CPU}
+	got := strings.Join(j.Args(), " ")
+	if !strings.Contains(got, "-vf crop=1080:1080:320:0,scale=-2:720:flags=lanczos") {
+		t.Errorf("crop must come before scale: %s", got)
+	}
+	if !strings.Contains(got, " -an ") || strings.Contains(got, "0:a") || strings.Contains(got, "-c:a") {
+		t.Errorf("no audio: %s", got)
+	}
+
+	// The target height is compared with the cropped height, not the source.
+	small := image.Rect(0, 0, 640, 480)
+	j = Job{Input: "in.mp4", Output: "out.mp4", Height: 720, SrcHeight: 1440, Crop: &small, Encoder: EncH264CPU}
+	if got := strings.Join(j.Args(), " "); strings.Contains(got, "scale=") {
+		t.Errorf("a 480 px crop must not be scaled up to 720: %s", got)
 	}
 }
 
@@ -187,6 +208,31 @@ func TestProbeAndExport(t *testing.T) {
 			}
 			t.Logf("%s: %s in %v", enc, FormatSize(st.Size()), time.Since(start).Round(time.Millisecond))
 		})
+	}
+}
+
+func TestExportCropNoAudio(t *testing.T) {
+	if testing.Short() {
+		t.Skip("runs ffmpeg")
+	}
+	dir := t.TempDir()
+	in := makeSample(t, dir)
+	out := filepath.Join(dir, "vertical.mp4")
+	r := image.Rect(960, 0, 1770, 1440) // 810x1440, 9:16 from the middle
+	job := Job{Input: in, Output: out, End: 2, Height: 1080, SrcHeight: 1440,
+		Crop: &r, NoAudio: true, Encoder: EncH264CPU, Quality: QualityLight}
+	if err := Run(context.Background(), job, 2, nil); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Probe(context.Background(), out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Width != 608 || got.Height != 1080 {
+		t.Errorf("resolution %dx%d, want 608x1080 (810x1440 scaled to 1080 p)", got.Width, got.Height)
+	}
+	if got.AudioTracks != 0 {
+		t.Errorf("audio tracks = %d, want 0", got.AudioTracks)
 	}
 }
 

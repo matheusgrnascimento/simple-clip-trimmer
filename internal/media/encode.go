@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
 	"io"
 	"os/exec"
 	"strconv"
@@ -23,6 +24,11 @@ type Job struct {
 	Quality Quality
 	// SrcHeight avoids upscaling videos smaller than the target height.
 	SrcHeight int
+	// Crop keeps only this part of the picture, in source pixels (nil keeps
+	// the whole picture). Its size must be even.
+	Crop *image.Rectangle
+	// NoAudio drops every audio track.
+	NoAudio bool
 }
 
 // Args builds the ffmpeg command line (without the executable).
@@ -42,15 +48,33 @@ func (j Job) Args() []string {
 	}
 
 	// Keep the main video and EVERY audio track (the NVIDIA app can record the
-	// microphone and the system sound on separate tracks).
-	args = append(args, "-map", "0:v:0", "-map", "0:a?")
+	// microphone and the system sound on separate tracks), unless the audio
+	// is removed.
+	args = append(args, "-map", "0:v:0")
+	if !j.NoAudio {
+		args = append(args, "-map", "0:a?")
+	}
 
-	if j.Height > 0 && (j.SrcHeight == 0 || j.Height < j.SrcHeight) {
-		args = append(args, "-vf", fmt.Sprintf("scale=-2:%d:flags=lanczos", j.Height))
+	// Crop first, then scale what is left.
+	var filters []string
+	srcHeight := j.SrcHeight
+	if j.Crop != nil {
+		filters = append(filters, fmt.Sprintf("crop=%d:%d:%d:%d", j.Crop.Dx(), j.Crop.Dy(), j.Crop.Min.X, j.Crop.Min.Y))
+		srcHeight = j.Crop.Dy()
+	}
+	if j.Height > 0 && (srcHeight == 0 || j.Height < srcHeight) {
+		filters = append(filters, fmt.Sprintf("scale=-2:%d:flags=lanczos", j.Height))
+	}
+	if len(filters) > 0 {
+		args = append(args, "-vf", strings.Join(filters, ","))
 	}
 
 	args = append(args, j.Encoder.videoArgs(j.Quality)...)
-	args = append(args, "-c:a", "aac", "-b:a", []string{"128k", "160k", "192k"}[j.Quality])
+	if j.NoAudio {
+		args = append(args, "-an")
+	} else {
+		args = append(args, "-c:a", "aac", "-b:a", []string{"128k", "160k", "192k"}[j.Quality])
+	}
 	args = append(args, "-movflags", "+faststart", j.Output)
 	return args
 }
