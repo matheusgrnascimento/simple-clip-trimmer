@@ -44,6 +44,7 @@ type app struct {
 	height   int // output height, 0 = original
 	quality  media.Quality
 	codec    media.Codec
+	noAudio  bool                          // drop every audio track
 	encoders map[media.Codec]media.Encoder // fastest working encoder per codec; nil until checked
 
 	cancelExport context.CancelFunc

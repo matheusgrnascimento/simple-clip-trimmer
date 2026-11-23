@@ -110,6 +110,7 @@ func (a *app) export() {
 		Encoder:   enc,
 		Quality:   a.quality,
 		SrcHeight: a.info.Height,
+		NoAudio:   a.noAudio,
 	}
 	total := a.cutEnd() - a.markIn
 	srcSize := a.info.Size
@@ -221,6 +222,7 @@ const (
 	menuSetStart    = 401
 	menuSetEnd      = 402
 	menuReset       = 403
+	menuNoAudio     = 501
 )
 
 func (a *app) qualityMenu(anchor fluent.Rect) {
@@ -246,8 +248,14 @@ func (a *app) qualityMenu(anchor fluent.Rect) {
 			Disabled: a.encoders != nil && !ok,
 		})
 	}
+	items = append(items,
+		fluent.MenuItem{Separator: true},
+		fluent.MenuItem{ID: menuNoAudio, Text: "Remove audio", Checked: a.noAudio},
+	)
 	id := a.popup(anchor, items)
 	switch {
+	case id == menuNoAudio:
+		a.noAudio = !a.noAudio
 	case id >= menuCodecBase && id < menuCodecBase+len(media.Codecs):
 		a.codec = media.Codec(id - menuCodecBase)
 	case id >= menuQualityBase && id < menuQualityBase+len(media.Qualities):
@@ -304,7 +312,11 @@ func (a *app) popup(anchor fluent.Rect, items []fluent.MenuItem) int {
 }
 
 func (a *app) qualityLabel() string {
-	return media.Qualities[a.quality].Name + "  ·  " + codecLabel(a.codec)
+	s := media.Qualities[a.quality].Name + "  ·  " + codecLabel(a.codec)
+	if a.noAudio {
+		s += "  ·  No audio"
+	}
+	return s
 }
 
 func (a *app) heightLabel() string { return heightName(a.height) }
