@@ -1,14 +1,17 @@
 // Command winres writes the Windows resources of the built .exe: the
-// application manifest (RT_MANIFEST #1) and the app icon (RT_GROUP_ICON #1
-// with its RT_ICON images), which Explorer, the Start menu and shortcuts
-// show.
+// application manifest (RT_MANIFEST #1), the app icon (RT_GROUP_ICON #1 with
+// its RT_ICON images), which Explorer, the Start menu and shortcuts show, and
+// the version information (RT_VERSION #1), which Task Manager (the process
+// name), Explorer and Settings > Apps show.
 //
 // Why after the build: with cgo, the MinGW GCC links its own
 // "default-manifest" (without Common Controls v6) and ld refuses to merge it
 // with a .syso of ours. So the app is built normally and the resources are
 // written afterwards with BeginUpdateResource/UpdateResource.
 //
-// Usage: go run ./tools/winres -manifest app.manifest -icon assets/icon.ico app.exe
+// Usage: go run ./tools/winres -manifest app.manifest -icon assets/icon.ico
+//
+//	-version 1.0.1 -description "Simple Clip Trimmer" -product ... app.exe
 package main
 
 import (
@@ -18,6 +21,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -34,6 +38,8 @@ const (
 	rtIcon      = 3
 	rtGroupIcon = 14
 	rtManifest  = 24
+	rtVersion   = 16
+	versionID   = 1
 	manifestID  = 1      // CREATEPROCESS_MANIFEST_RESOURCE_ID
 	iconGroupID = 1      // the first icon group is the one Explorer shows
 	langEnUS    = 0x0409 // same language as the MinGW default manifest, so it is replaced
@@ -43,12 +49,19 @@ const (
 func main() {
 	manifest := flag.String("manifest", "", "application manifest to embed")
 	icon := flag.String("icon", "", ".ico file to embed as the app icon")
+	var ver versionData
+	flag.StringVar(&ver.Version, "version", "", "version as major.minor.patch (enables the version information)")
+	flag.StringVar(&ver.Description, "description", "", "file description, the process name in Task Manager")
+	flag.StringVar(&ver.Product, "product", "", "product name")
+	flag.StringVar(&ver.Company, "company", "", "company name")
+	flag.StringVar(&ver.Copyright, "copyright", "", "copyright notice")
 	flag.Parse()
-	if flag.NArg() != 1 || (*manifest == "" && *icon == "") {
-		fmt.Fprintln(os.Stderr, "usage: winres [-manifest app.manifest] [-icon app.ico] file.exe")
+	if flag.NArg() != 1 || (*manifest == "" && *icon == "" && ver.Version == "") {
+		fmt.Fprintln(os.Stderr, "usage: winres [-manifest app.manifest] [-icon app.ico] [-version 1.0.0 -description ... -product ... -company ... -copyright ...] file.exe")
 		os.Exit(2)
 	}
-	if err := run(flag.Arg(0), *manifest, *icon); err != nil {
+	ver.FileName = filepath.Base(flag.Arg(0))
+	if err := run(flag.Arg(0), *manifest, *icon, ver); err != nil {
 		fmt.Fprintln(os.Stderr, "winres:", err)
 		os.Exit(1)
 	}
@@ -60,7 +73,7 @@ type resource struct {
 	data          []byte
 }
 
-func run(exe, manifestPath, iconPath string) error {
+func run(exe, manifestPath, iconPath string, ver versionData) error {
 	var res []resource
 	if manifestPath != "" {
 		data, err := os.ReadFile(manifestPath)
@@ -79,6 +92,13 @@ func run(exe, manifestPath, iconPath string) error {
 			return fmt.Errorf("%s: %w", iconPath, err)
 		}
 		res = append(res, icons...)
+	}
+	if ver.Version != "" {
+		data, err := versionInfo(ver)
+		if err != nil {
+			return err
+		}
+		res = append(res, resource{rtVersion, versionID, langEnUS, data})
 	}
 	return update(exe, res)
 }
