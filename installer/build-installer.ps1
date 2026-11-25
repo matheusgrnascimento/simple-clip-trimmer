@@ -1,11 +1,14 @@
 <#
 .SYNOPSIS
-    Builds the Simple Clip Trimmer MSI installer.
+    Builds the Simple Clip Trimmer setup and the MSI installer.
 
 .DESCRIPTION
     1. Builds the app with build.ps1.
     2. Stages the executable, libmpv and the license.
-    3. Builds dist\SimpleClipTrimmer-<version>-x64.msi with the WiX Toolset.
+    3. Builds dist\SimpleClipTrimmer-<version>-setup.exe (installer\setup): the
+       Windows 11 style installer for the current user, with the files inside.
+       It needs Rust (MSVC toolchain).
+    4. Builds dist\SimpleClipTrimmer-<version>-x64.msi with the WiX Toolset.
 
     The version comes from the VERSION file. FFmpeg is not bundled; it must
     be in PATH on the machine that runs the app.
@@ -30,6 +33,7 @@ $version = (Get-Content VERSION -Raw).Trim()
 $stage = Join-Path $root "build\installer-stage"
 $dist = Join-Path $root "dist"
 $msi = Join-Path $dist "SimpleClipTrimmer-$version-x64.msi"
+$setup = Join-Path $dist "SimpleClipTrimmer-$version-setup.exe"
 
 Write-Host "==> Building $version" -ForegroundColor Cyan
 & (Join-Path $root "build.ps1")
@@ -43,10 +47,29 @@ Copy-Item "build\libmpv-2.dll" $stage
 Copy-Item "assets\icon.ico" $stage
 Copy-Item "LICENSE" "$stage\LICENSE.txt"
 
+# The setup embeds the same files as the MSI, except what only the MSI uses.
+$payload = Join-Path $root "build\setup-payload"
+if (Test-Path $payload) { Remove-Item $payload -Recurse -Force }
+Copy-Item $stage $payload -Recurse
+Remove-Item "$payload\icon.ico"
+
 # License page of the installer (RTF).
 $escape = { param($s) $s.Replace('\', '\\').Replace('{', '\{').Replace('}', '\}') }
 $body = (Get-Content LICENSE | ForEach-Object { (& $escape $_) + "\par" }) -join "`n"
 "{\rtf1\ansi\deff0{\fonttbl{\f0 Segoe UI;}}\fs18`n$body`n}" | Set-Content "$stage\license.rtf" -Encoding ascii
+
+Write-Host "==> Building the setup (embeds the files)" -ForegroundColor Cyan
+New-Item -ItemType Directory -Path $dist -Force | Out-Null
+$env:SETUP_PAYLOAD_DIR = $payload
+Push-Location "installer\setup"
+try {
+    cargo build --release
+    if ($LASTEXITCODE -ne 0) { throw "setup build failed." }
+} finally {
+    Pop-Location
+    Remove-Item Env:\SETUP_PAYLOAD_DIR
+}
+Copy-Item "installer\setup\target\release\simple-clip-trimmer-setup.exe" $setup -Force
 
 Write-Host "==> Building MSI" -ForegroundColor Cyan
 New-Item -ItemType Directory -Path $dist -Force | Out-Null
@@ -54,4 +77,6 @@ wix build "installer\Package.wxs" -arch x64 -ext WixToolset.UI.wixext -ext WixTo
     -d "Version=$version" -d "StageDir=$stage" -o $msi
 if ($LASTEXITCODE -ne 0) { throw "wix build failed." }
 
-Write-Host "==> $msi ($([math]::Round((Get-Item $msi).Length / 1MB, 1)) MB)" -ForegroundColor Green
+foreach ($file in $setup, $msi) {
+    Write-Host "==> $file ($([math]::Round((Get-Item $file).Length / 1MB, 1)) MB)" -ForegroundColor Green
+}

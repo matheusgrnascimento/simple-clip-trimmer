@@ -3,3 +3,4 @@
 *.exe
 *.syso
 /dist
+/installer/setup/target

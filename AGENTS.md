@@ -32,7 +32,7 @@ Simple Clip Trimmer is a Windows desktop app that trims, resizes and compresses 
 - `tools/genicon/` and `assets/`: the app icon, generated from code (`go run ./tools/genicon` writes `assets/icon.ico` and `assets/icon.png`); `icon.go` draws it in the title bar and sets the window icon. Change the icon in the generator, never by editing the image files.
 - `setup.ps1`: Windows environment setup (tools, libmpv) and build. `build.ps1`: build only, into `build\Simple Clip Trimmer.exe`.
 - `VERSION`: the single source of the version (the exe's version resource and the MSI name and version).
-- `installer/`: the WiX MSI (`Package.wxs`) and `build-installer.ps1`, which writes it to `dist\`.
+- `installer/`: the WiX MSI (`Package.wxs`), `build-installer.ps1`, which writes both installers to `dist\`, and `installer/setup`, the Windows 11 style installer for the current user (Rust, a crate of its own: run `cargo fmt`, `cargo clippy -- -D warnings` there when you change it).
 - `third_party/libmpv/`: libmpv DLL, import library and headers, downloaded by `setup.ps1` and not committed.
 
 ## Language
