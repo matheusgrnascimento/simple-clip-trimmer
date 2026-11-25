@@ -1,0 +1,96 @@
+<!--
+  MSI installer for Simple Clip Trimmer (WiX Toolset 5).
+  Built by installer/build-installer.ps1, which stages the files in
+  $(StageDir) and passes the version.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Package Name="Simple Clip Trimmer"
+           Manufacturer="Matheus Nascimento"
+           Version="$(Version)"
+           UpgradeCode="6B1F3C52-8D0E-4A57-9C3E-2F7A41D5B9E8"
+           Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Simple Clip Trimmer is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="AppIcon.ico" SourceFile="$(StageDir)\icon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon.ico" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/matheusgrnascimento/simple-clip-trimmer" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(StageDir)\license.rtf" />
+
+    <!-- The Advanced button of the first page lets the user choose between
+         all users (the default: Program Files, asks for administrator
+         rights) and the current user only (%LocalAppData%\Programs, no
+         prompt). WixUI_Advanced would use the 32-bit Program Files and
+         %LocalAppData%\Apps, so both folders are set again after its
+         defaults. -->
+    <Property Id="ApplicationFolderName" Value="Simple Clip Trimmer" />
+    <Property Id="WixAppFolder" Value="WixPerMachineFolder" />
+    <CustomAction Id="SetPerUserFolder"
+                  Property="WixPerUserFolder"
+                  Value="[LocalAppDataFolder]Programs\[ApplicationFolderName]"
+                  Execute="immediate" />
+    <CustomAction Id="SetPerMachineFolder"
+                  Property="WixPerMachineFolder"
+                  Value="[ProgramFiles64Folder][ApplicationFolderName]"
+                  Execute="immediate" />
+    <InstallUISequence>
+      <Custom Action="SetPerUserFolder" After="WixSetDefaultPerMachineFolder" />
+      <Custom Action="SetPerMachineFolder" After="SetPerUserFolder" />
+    </InstallUISequence>
+    <InstallExecuteSequence>
+      <Custom Action="SetPerUserFolder" After="WixSetDefaultPerMachineFolder" />
+      <Custom Action="SetPerMachineFolder" After="SetPerUserFolder" />
+    </InstallExecuteSequence>
+
+    <!-- Close the app before files are replaced or removed. -->
+    <util:CloseApplication Id="CloseRunningApp"
+                           Target="Simple Clip Trimmer.exe"
+                           CloseMessage="yes"
+                           RebootPrompt="no"
+                           Timeout="5" />
+
+    <!-- The final page offers to open the app. -->
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Open Simple Clip Trimmer" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <Property Id="WixShellExecTarget" Value="[#MainExe]" />
+    <CustomAction Id="LaunchApplication"
+                  BinaryRef="Wix4UtilCA_X64"
+                  DllEntry="WixShellExec"
+                  Impersonate="yes" />
+    <UI>
+      <ui:WixUI Id="WixUI_Advanced" />
+      <Publish Dialog="ExitDialog"
+               Control="Finish"
+               Event="DoAction"
+               Value="LaunchApplication"
+               Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
+    </UI>
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="APPLICATIONFOLDER" Name="Simple Clip Trimmer" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+
+    <Feature Id="Main" Title="Simple Clip Trimmer" Level="1">
+      <Component Directory="APPLICATIONFOLDER">
+        <File Id="MainExe" Source="$(StageDir)\Simple Clip Trimmer.exe" KeyPath="yes">
+          <Shortcut Id="StartMenuShortcut"
+                    Name="Simple Clip Trimmer"
+                    Description="Trim, resize and compress videos"
+                    Directory="ProgramMenuFolder"
+                    WorkingDirectory="APPLICATIONFOLDER"
+                    Icon="AppIcon.ico"
+                    Advertise="yes" />
+        </File>
+      </Component>
+      <Component Directory="APPLICATIONFOLDER">
+        <File Source="$(StageDir)\libmpv-2.dll" KeyPath="yes" />
+      </Component>
+      <Component Directory="APPLICATIONFOLDER">
+        <File Source="$(StageDir)\LICENSE.txt" KeyPath="yes" />
+      </Component>
+    </Feature>
+  </Package>
+</Wix>

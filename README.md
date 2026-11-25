@@ -47,12 +47,22 @@ To use tools that are already installed, or to only download libmpv and build:
 With the requirements above in place:
 
 ```powershell
-.\build.ps1           # build\simple-clip-trimmer.exe, without a console window
+.\build.ps1           # build\Simple Clip Trimmer.exe, without a console window
 .\build.ps1 -Console  # keeps the console, to see logs and panics
 ```
 
-`build.ps1` builds with cgo, then runs `tools\winres` to write the Windows resources: `app.manifest` in place of the default manifest that the MinGW GCC links into every executable (Common Controls v6 and DPI awareness, which `walk` requires) and the app icon. Then it copies `libmpv-2.dll` next to the executable.
+`build.ps1` builds with cgo, then runs `tools\winres` to write the Windows resources: `app.manifest` in place of the default manifest that the MinGW GCC links into every executable (Common Controls v6 and DPI awareness, which `walk` requires) and the app icon. It also embeds the version information (the `VERSION` file, the product and company names), which is what Task Manager shows for the process. Then it copies `libmpv-2.dll` next to the executable.
 
+## Installer
+
+`installer\build-installer.ps1` builds `dist\SimpleClipTrimmer-<version>-x64.msi` (the version comes from the `VERSION` file) with the executable and `libmpv-2.dll`. The MSI installs for all users to `Program Files\Simple Clip Trimmer` by default; the Advanced button of the first page switches to the current user only (`%LocalAppData%\Programs\Simple Clip Trimmer`, no administrator prompt). It closes the running app when it updates, adds a Start menu shortcut, offers to open the app at the end and can be removed from Windows Settings > Apps. FFmpeg is not bundled and must be in `PATH`. It needs [WiX Toolset 5](https://wixtoolset.org) with the UI and Util extensions:
+
+```powershell
+dotnet tool install --global wix --version 5.0.2
+wix extension add -g WixToolset.UI.wixext/5.0.2
+wix extension add -g WixToolset.Util.wixext/5.0.2
+.\installer\build-installer.ps1
+```
 ## Icon
 
 The app icon is a blue rounded square (the same gradient as Simple RTSP Viewer's) with a white play triangle between two yellow trim brackets. It is drawn from code by `tools\genicon`, which renders each size of `assets\icon.ico` (16 to 256 px) directly with 4×4 supersampling, so the small sizes stay sharp, and writes the 256 px image to `assets\icon.png`:
@@ -66,11 +76,11 @@ go run ./tools/genicon
 ## Running
 
 ```powershell
-.\build\simple-clip-trimmer.exe
-.\build\simple-clip-trimmer.exe "C:\Users\me\Videos\clip.mp4"
+& ".\build\Simple Clip Trimmer.exe"
+& ".\build\Simple Clip Trimmer.exe" "C:\Users\me\Videos\clip.mp4"
 ```
 
-`build\` holds everything the app needs except FFmpeg: `simple-clip-trimmer.exe` and `libmpv-2.dll`. Copy `ffmpeg.exe` and `ffprobe.exe` there too to run it on a machine without FFmpeg in `PATH`.
+`build\` holds everything the app needs except FFmpeg: `Simple Clip Trimmer.exe` and `libmpv-2.dll`. Copy `ffmpeg.exe` and `ffprobe.exe` there too to run it on a machine without FFmpeg in `PATH`.
 
 ### Shortcuts
 
@@ -96,7 +106,7 @@ The app follows the Windows light/dark app theme and accent color. To check one 
 | `SIMPLE_CLIP_TRIMMER_THEME` | `light` or `dark` forces that theme |
 
 ```powershell
-$env:SIMPLE_CLIP_TRIMMER_THEME = "light"; .\build\simple-clip-trimmer.exe
+$env:SIMPLE_CLIP_TRIMMER_THEME = "light"; & ".\build\Simple Clip Trimmer.exe"
 ```
 
 ## Export

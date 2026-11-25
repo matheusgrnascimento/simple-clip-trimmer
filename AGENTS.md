@@ -30,7 +30,9 @@ Simple Clip Trimmer is a Windows desktop app that trims, resizes and compresses 
 - `internal/media/`: codecs and encoders, ffprobe parsing, ffmpeg arguments, progress and cancellation.
 - `tools/winres/`: writes the Windows resources of the built `.exe`: `app.manifest` in place of the MinGW default manifest, and the app icon.
 - `tools/genicon/` and `assets/`: the app icon, generated from code (`go run ./tools/genicon` writes `assets/icon.ico` and `assets/icon.png`); `icon.go` draws it in the title bar and sets the window icon. Change the icon in the generator, never by editing the image files.
-- `setup.ps1`: Windows environment setup (tools, libmpv) and build. `build.ps1`: build only.
+- `setup.ps1`: Windows environment setup (tools, libmpv) and build. `build.ps1`: build only, into `build\Simple Clip Trimmer.exe`.
+- `VERSION`: the single source of the version (the exe's version resource and the MSI name and version).
+- `installer/`: the WiX MSI (`Package.wxs`) and `build-installer.ps1`, which writes it to `dist\`.
 - `third_party/libmpv/`: libmpv DLL, import library and headers, downloaded by `setup.ps1` and not committed.
 
 ## Language
